@@ -17,6 +17,13 @@ SAMESITE = {-1: "Lax", 0: "None", 1: "Lax", 2: "Strict"}
 # tempfile.mkstemp() is 0o600 on POSIX. On Windows the same call yields 0o666
 # because NTFS does not implement Unix permission bits; refusing that mode
 # drops an already-authenticated hh.ru session.
+#
+# Windows threat model (зафиксировано, не полагаться на биты режима): защита
+# state.json с bearer-токеном обеспечивается NTFS ACL, унаследованным от
+# каталога профиля пользователя (%USERPROFILE% — доступ только у владельца,
+# SYSTEM и Administrators). Эквивалент POSIX 0o600 здесь — унаследованный ACL,
+# а не st_mode. Ослаблять ACL каталога аккаунтов (icacls /grant Everyone)
+# нельзя — это откроет сессию другим пользователям машины.
 _POSIX_SESSION_MODE = 0o600
 
 DEFAULT_CHROME_PROFILES_ROOT = Path.home() / "Library/Application Support/Google/Chrome"
