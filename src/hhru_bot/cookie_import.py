@@ -16,6 +16,11 @@ CHROME_EPOCH_OFFSET = 11_644_473_600
 MAX_PLAYWRIGHT_EXPIRES = 253_402_300_799  # 9999-12-31T23:59:59Z
 SAMESITE = {-1: "Lax", 0: "None", 1: "Lax", 2: "Strict"}
 
+# tempfile.mkstemp() is 0o600 on POSIX. On Windows the same call yields 0o666
+# because NTFS does not implement Unix permission bits; refusing that mode
+# drops an already-authenticated hh.ru session.
+_POSIX_SESSION_MODE = 0o600
+
 DEFAULT_CHROME_PROFILES_ROOT = Path.home() / "Library/Application Support/Google/Chrome"
 DEFAULT_CHROME_PROFILE_NAME = "Default"
 
@@ -50,6 +55,12 @@ def resolve_chrome_profile(profile: Path | None = None) -> Path:
         if candidate.exists() or len(profile.parts) == 1:
             return candidate
     return profile
+
+
+def _session_temp_mode_is_safe(mode: int) -> bool:
+    if os.name == "nt":
+        return True
+    return mode == _POSIX_SESSION_MODE
 
 
 def chrome_cookie_file(profile: Path | None = None) -> Path:
@@ -193,7 +204,14 @@ def write_storage_state(
                 # path-based call here would reopen the same TOCTOU window
                 # this fix closes above — os.futimens/os.fchmod act on the
                 # already-open descriptor, no path lookup left to redirect.
-                os.utime(handle.fileno(), ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
+                # Windows: os.utime не принимает fd (TypeError) — пропускаем;
+                # вся fd-дискipline там ради symlink-TOCTOU, а создание
+                # symlink на Windows требует SeCreateSymbolicLinkPrivilege.
+                if os.name != "nt":
+                    os.utime(
+                        handle.fileno(),
+                        ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns),
+                    )
                 # round 3 (claude/review): intentionally NOT copying
                 # destination's mode bits here (unlike shutil.copy2, which
                 # this replaced). The `.bak` fd was opened with a fixed 0600
@@ -234,7 +252,7 @@ def write_storage_state(
         # instead of leaking the bearer token through a group/world-readable
         # temp file.
         mode = os.fstat(fd).st_mode & 0o777
-        if mode != 0o600:
+        if not _session_temp_mode_is_safe(mode):
             os.close(fd)
             raise OSError(f"temp-файл сессии создан с режимом {mode:o} вместо 0600")
         with os.fdopen(fd, "w", encoding="utf-8") as handle:

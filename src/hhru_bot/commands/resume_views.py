@@ -3,23 +3,44 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
-
-URL = "https://hh.ru/applicant/resumeview/history"
 
 
 def register(subparsers) -> None:
     p = subparsers.add_parser(
         "resume-views", help="Показать реальные просмотры резюме работодателями"
     )
-    p.add_argument("--resume", help="ID резюме (по умолчанию — все резюме)")
+    p.add_argument(
+        "--resume",
+        action="append",
+        help="ID резюме (можно несколько; по умолчанию — все из конфига)",
+    )
     p.add_argument(
         "--limit", type=int, default=100, help="Максимум snapshots на резюме (по умолчанию 100)"
     )
     p.add_argument(
         "--max-pages", type=int, default=5, help="Максимум страниц истории (по умолчанию 5)"
     )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="JSON для внешних клиентов (Koplife Jobs)",
+    )
     p.set_defaults(func=run)
+
+
+def _emit_json(payload: dict, *, ok: bool = True) -> None:
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
+    if not ok:
+        raise SystemExit(1)
+
+
+def _fail(message: str, *, as_json: bool) -> None:
+    if as_json:
+        _emit_json({"ok": False, "error": message, "views": []}, ok=False)
+    print(f"[FAIL] {message}", file=sys.stderr)
+    raise SystemExit(1)
 
 
 def _table(rows: list[dict]) -> None:
@@ -38,43 +59,61 @@ def _table(rows: list[dict]) -> None:
 def run(args: argparse.Namespace) -> None:
     from ..browser import goto_hh, launch_context, require_authenticated_page
     from ..config import load_config_or_exit
+    from ..copy_resume import resolve_numeric_resume_ids
     from ..history import History
-    from ..resume_views import has_next_page, parse_resume_view_history
+    from ..resume_views import (
+        has_next_page,
+        history_page_url,
+        parse_resume_view_history,
+        ssr_history_has_more,
+    )
 
+    as_json = bool(getattr(args, "json", False))
     if args.limit < 1 or args.max_pages < 1:
-        raise ValueError("limit и max-pages должны быть >= 1")
+        _fail("limit и max-pages должны быть >= 1", as_json=as_json)
     config = load_config_or_exit(args.config)
     history = History(args.history)
-    if args.resume is None:
+    resume_keys = (
+        args.resume if isinstance(args.resume, list) else ([args.resume] if args.resume else None)
+    )
+    if not resume_keys:
         resumes = config.resumes
     else:
         from ._common import resolve_resume
 
-        try:
-            resumes = [resolve_resume(config, args.resume)]
-        except Exception as exc:
-            print(f"[FAIL] резюме не найдено: {exc}", file=sys.stderr)
-            raise SystemExit(1) from exc
+        resumes = []
+        for key in resume_keys:
+            try:
+                resumes.append(resolve_resume(config, key))
+            except Exception as exc:
+                _fail(f"резюме не найдено: {exc}", as_json=as_json)
     if not resumes:
-        print("[FAIL] резюме не найдено", file=sys.stderr)
-        raise SystemExit(1)
+        _fail("резюме не найдено", as_json=as_json)
 
     fetched: list[dict] = []
     with launch_context(
         config.storage_state_file, headless=args.headless, user_agent=config.user_agent
     ) as context:
         page = context.new_page()
+        mapping = resolve_numeric_resume_ids(page)
         for resume in resumes:
+            numeric = str(resume.resume_id) if str(resume.resume_id).isdigit() else None
+            if numeric is None and mapping is not None:
+                numeric = mapping.get(resume.resume_id)
+            if not numeric:
+                _fail(
+                    f"не удалось сопоставить числовой id резюме {resume.resume_id}",
+                    as_json=as_json,
+                )
             resume_fetched = 0
             truncated = False
-            # Route accepts resume_id as a query parameter on current hh.ru; no
-            # direct HTTP request is made, preserving the browser boundary.
             for page_num in range(args.max_pages):
-                goto_hh(page, f"{URL}?resume={resume.resume_id}&page={page_num}")
+                goto_hh(page, history_page_url(numeric, page_num))
                 require_authenticated_page(page)
+                html = page.content()
                 try:
                     rows = parse_resume_view_history(
-                        page.content(),
+                        html,
                         resume.resume_id,
                         limit=args.limit - resume_fetched,
                     )
@@ -87,13 +126,14 @@ def run(args: argparse.Namespace) -> None:
                     # SSR is the confirmed, curl-verified source (selectors.py);
                     # a parse failure fails closed instead of falling back to
                     # an unconfirmed DOM scrape.
-                    print(f"[FAIL] история просмотров не подтверждена: {exc}", file=sys.stderr)
-                    raise SystemExit(1) from exc
+                    _fail(f"история просмотров не подтверждена: {exc}", as_json=as_json)
                 fetched.extend(rows)
                 resume_fetched += len(rows)
                 if not rows or resume_fetched >= args.limit:
                     break
-                more_pages = has_next_page(page, page_num)
+                more_pages = ssr_history_has_more(html)
+                if more_pages is None:
+                    more_pages = has_next_page(page, page_num)
                 if not more_pages:
                     break
                 if page_num == args.max_pages - 1:
@@ -112,18 +152,11 @@ def run(args: argparse.Namespace) -> None:
                     file=sys.stderr,
                 )
 
-    # Truncated pages (see [WARN] above) are still persisted — deliberately,
-    # not an oversight (#428 review, round 13). record_resume_views uses
-    # INSERT OR IGNORE against the accumulated resume_views table, and
-    # resume_views() below reads that whole table, not a per-run snapshot:
-    # a later run with a higher --max-pages backfills the missing rows and
-    # dedups the overlap with the already-stored ones. The undercount from a
-    # truncated run is transient, not permanent — the [WARN] plus this
-    # self-healing union is what CLAUDE.md decision #5 asks for here; adding
-    # a separate "incomplete" status column would be new schema for a
-    # problem the next run already fixes on its own.
     inserted = history.record_resume_views(fetched)
-    stored = history.resume_views(resumes[0].resume_id if args.resume is not None else None)
+    if as_json:
+        _emit_json({"ok": True, "views": fetched, "inserted": inserted})
+        return
+    stored = history.resume_views(resumes[0].resume_id if resume_keys else None)
     print(f"Просмотры резюме: всего {len(stored)}, новых {inserted}")
     if not stored:
         print("(нет подтверждённых просмотров)")

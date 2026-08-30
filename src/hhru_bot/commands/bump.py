@@ -5,13 +5,40 @@ from __future__ import annotations
 import argparse
 
 from ._audit import action_status, record_resume_action
-from ._common import ApplyProgress, add_common_args, resumes_from_args, run_supervised_command
+from ._common import ApplyProgress, resolve_resume, run_supervised_command
 
 
 def register(subparsers) -> None:
     p = subparsers.add_parser("bump", help="Поднять резюме в поиске")
-    add_common_args(p)
+    p.add_argument(
+        "--resume",
+        action="append",
+        help="Slug из конфига или resume_id HH.ru (можно несколько; по умолчанию — все из конфига)",
+    )
+    p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Показать, что будет сделано, без реальных действий",
+    )
     p.set_defaults(func=run)
+
+
+def resumes_for_bump(config, args: argparse.Namespace):
+    """Резюме для bump: slug/hash из --resume (в т.ч. bare-hash) или все из конфига.
+
+    jobs передаёт hh-хэши опубликованных резюме; в account config.yaml их
+    обычно нет, поэтому здесь resolve_resume, а не get_resume/resumes_from_args.
+    """
+    raw = getattr(args, "resume", None)
+    if not raw:
+        return list(config.resumes)
+    keys = raw if isinstance(raw, list) else [raw]
+    out = []
+    for key in keys:
+        text = str(key or "").strip()
+        if text:
+            out.append(resolve_resume(config, text))
+    return out
 
 
 def _reconcile_bump_progress(progress: ApplyProgress, _history, _run_id: str) -> None:
@@ -32,7 +59,7 @@ def _run(args: argparse.Namespace, config, history, progress: ApplyProgress) -> 
     from ..bump import bump_resume
     from ..throttle import LimitReached, Throttle
 
-    resumes = resumes_from_args(config, args)
+    resumes = resumes_for_bump(config, args)
     throttle = Throttle(config.throttle, history)
     failed = False
 

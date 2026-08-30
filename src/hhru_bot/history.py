@@ -709,6 +709,30 @@ class CommandRunBusy(RuntimeError):
         )
 
 
+def _pid_is_alive_windows(pid: int) -> bool:
+    """Liveness probe без os.kill: на Windows sig=0 — это CTRL_C_EVENT (!),
+    и os.kill(pid, 0) рассылает Ctrl+C всей консольной группе (GenerateConsoleCtrlEvent),
+    включая собственный процесс — отсюда спонтанные KeyboardInterrupt в main-потоке.
+    """
+    import ctypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    process_query_limited = 0x1000
+    still_active = 259
+    handle = kernel32.OpenProcess(process_query_limited, False, pid)
+    if not handle:
+        # ERROR_ACCESS_DENIED: процесс существует, но прав нет — fail closed,
+        # как в POSIX-ветке с PermissionError.
+        return ctypes.get_last_error() == 5
+    try:
+        exit_code = ctypes.c_ulong()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return False
+        return exit_code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _pid_is_alive(pid: int | None) -> bool:
     """Return whether a recorded local PID is confirmed alive.
 
@@ -717,6 +741,8 @@ def _pid_is_alive(pid: int | None) -> bool:
     """
     if pid is None or pid <= 0:
         return False
+    if os.name == "nt":
+        return _pid_is_alive_windows(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

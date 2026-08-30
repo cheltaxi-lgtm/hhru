@@ -15,6 +15,7 @@ Read-only по hh.ru: страница откликов только читае�
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 
 from ..exit_codes import CommandExitCode
@@ -71,6 +72,19 @@ def register(subparsers) -> None:
         action="store_true",
         help="Для каждого нового приглашения напечатать готовую команду "
         "`hhru calendar event` с плейсхолдерами времени (#711)",
+    )
+    p.add_argument(
+        "--json",
+        action="store_true",
+        help="JSON для внешних клиентов (Koplife Jobs): живой снимок откликов",
+    )
+    p.add_argument(
+        "--with-messages",
+        action="store_true",
+        help=(
+            "Прочитать последнее сообщение в чатах со статусом "
+            "response/invitation (лимит 8) и добавить last_message в JSON"
+        ),
     )
     p.set_defaults(func=run)
 
@@ -130,6 +144,53 @@ def _print_calendar_hints(rows: list[dict]) -> None:
     print(f"\n[INFO] Calendar hint для новых приглашений: {len(invitations)}")
     for row in invitations:
         print(_calendar_hint_line(_calendar_hint_employer_label(row), row.get("vacancy_id", "")))
+
+
+def _emit_json(payload: dict, *, ok: bool = True) -> None:
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
+    if not ok:
+        raise SystemExit(1)
+
+
+def _card_payload(card, remindable_ids: set[str], previews: dict | None = None) -> dict:
+    topic = card.topic
+    payload = {
+        "vacancy_id": card.vacancy_id,
+        "title": card.title or "",
+        "employer": card.employer or "",
+        "status": card.status,
+        "raw_status": card.raw_status or "",
+        "topic": topic,
+        "chat_url": card.chat_url,
+        "date": card.date or "",
+        "resume_id": card.resume_id,
+        "topic_ambiguous": bool(card.topic_ambiguous),
+        "remindable": bool(topic) and str(topic) in remindable_ids,
+    }
+    preview = (previews or {}).get(str(topic or ""))
+    if preview:
+        payload["last_message"] = preview
+    return payload
+
+
+def _remindable_payload(refs) -> list[dict]:
+    rows: list[dict] = []
+    seen: set[str] = set()
+    for ref in refs:
+        topic_id = str(ref.topic_id)
+        if topic_id in seen:
+            continue
+        seen.add(topic_id)
+        rows.append(
+            {
+                "topic": topic_id,
+                "chat_id": ref.chat_id,
+                "vacancy_id": ref.vacancy_id,
+                "employer": ref.employer or "",
+                "title": ref.vacancy or "",
+            }
+        )
+    return rows
 
 
 def _print_responses_table(rows: list[dict], title: str) -> None:
@@ -196,11 +257,25 @@ def run(args: argparse.Namespace) -> CommandExitCode | None:
 
     # «Что нового» меряется по status_changed_at. since = now - since-hours.
     # --sync-applied всегда выполняет живой read, включая --since-hours 0.
+    as_json = bool(getattr(args, "json", False))
     remindable_only = getattr(args, "remindable", False)
     sync_applied = getattr(args, "sync_applied", False)
     alert_new = getattr(args, "alert_new", False)
     detect_external_tests = getattr(args, "detect_external_tests", False)
     calendar_hint = getattr(args, "calendar_hint", False)
+    if as_json and (remindable_only or sync_applied or detect_external_tests):
+        _emit_json(
+            {
+                "ok": False,
+                "error": (
+                    "--json нельзя совмещать с --remindable, "
+                    "--sync-applied или --detect-external-tests"
+                ),
+                "items": [],
+                "remindable": [],
+            },
+            ok=False,
+        )
     if sync_applied and (remindable_only or detect_external_tests):
         print(
             "Ошибка: --sync-applied нельзя совмещать с --remindable или --detect-external-tests",
@@ -227,10 +302,24 @@ def run(args: argparse.Namespace) -> CommandExitCode | None:
         )
         sys.exit(2)
     if args.max_pages < 1:
+        if as_json:
+            _emit_json(
+                {
+                    "ok": False,
+                    "error": "--max-pages должен быть положительным",
+                    "items": [],
+                    "remindable": [],
+                },
+                ok=False,
+            )
         print("Ошибка: --max-pages должен быть положительным", file=sys.stderr)
         sys.exit(2)
     fresh_only = (
-        args.since_hours <= 0 and not remindable_only and not sync_applied and not alert_new
+        args.since_hours <= 0
+        and not remindable_only
+        and not sync_applied
+        and not alert_new
+        and not as_json
     )
     scan_started_at = datetime.now()
     since_fetch = scan_started_at - timedelta(hours=args.since_hours)
@@ -248,10 +337,11 @@ def run(args: argparse.Namespace) -> CommandExitCode | None:
             print(f"Ошибка: {e}", file=sys.stderr)
             sys.exit(1)
 
-    if fresh_only:
-        print("\n=== Ответы работодателей (вся история, без обхода hh.ru) ===")
-    elif not alert_new:
-        print(f"\n=== Ответы работодателей (новое за {args.since_hours:g}ч) ===")
+    if not as_json:
+        if fresh_only:
+            print("\n=== Ответы работодателей (вся история, без обхода hh.ru) ===")
+        elif not alert_new:
+            print(f"\n=== Ответы работодателей (новое за {args.since_hours:g}ч) ===")
 
     # Responses — account-scope: страница /applicant/negotiations общая и НЕ несёт
     # достоверного признака принадлежности ответа конкретному резюме. Поэтому
@@ -259,7 +349,7 @@ def run(args: argparse.Namespace) -> CommandExitCode | None:
     # под все resume_id из конфига — клонирование фабриковало бы данные (ответ
     # резюме A приписывался бы и резюме B). --resume здесь warn+ignore: фильтр по
     # резюме для ответов работодателя невозможен без достоверной атрибуции.
-    if args.resume is not None and not alert_new:
+    if args.resume is not None and not alert_new and not as_json:
         print(
             "Внимание: --resume игнорируется как фильтр обхода — /applicant/negotiations "
             "сканируется на уровне аккаунта; подтверждённая SSR-атрибуция выводится "
@@ -286,12 +376,15 @@ def run(args: argparse.Namespace) -> CommandExitCode | None:
                             f"вакансия={ref.vacancy} vacancy_id={ref.vacancy_id}"
                         )
                     return
-                cards = fetch_responses(
-                    page,
-                    max_pages=args.max_pages,
-                    strict_empty=sync_applied,
-                    strict_scrape=alert_new,
-                )
+                remindable_refs: list = []
+                fetch_kwargs = {
+                    "max_pages": args.max_pages,
+                    "strict_empty": sync_applied,
+                    "strict_scrape": alert_new,
+                }
+                if as_json:
+                    fetch_kwargs["remindable_out"] = remindable_refs
+                cards = fetch_responses(page, **fetch_kwargs)
                 if alert_new and any(
                     card.topic_ambiguous and card.status == ResponseStatus.INVITATION
                     for card in cards
@@ -306,9 +399,35 @@ def run(args: argparse.Namespace) -> CommandExitCode | None:
                     # The first poll has no durable baseline yet. Store it before
                     # incremental upserts so a partial write remains retryable.
                     history.mark_responses_alert_success(scan_started_at)
+                message_previews: dict = {}
+                if getattr(args, "with_messages", False):
+                    from ..negotiations_chat import (
+                        read_chat_previews,
+                        topics_for_chat_preview,
+                    )
+                    from ..negotiations_probe import paginated_topic_refs
+
+                    try:
+                        chat_refs = {
+                            ref.topic_id: ref.chat_id
+                            for ref in paginated_topic_refs(page, max_pages=args.max_pages)
+                        }
+                        message_previews = read_chat_previews(
+                            page, chat_refs, topics_for_chat_preview(cards)
+                        )
+                    except (NotAuthenticated, ResponsesIndeterminate, ValueError) as exc:
+                        print(
+                            f"Внимание: не удалось прочитать тексты чатов: {exc}",
+                            file=sys.stderr,
+                        )
             except (NotAuthenticated, ResponsesIndeterminate, ValueError) as e:
                 # Истёкшая сессия или не подтверждённый DOM: НЕ затираем
                 # историю и НЕ выдаём неопределённость за «нет новых ответов».
+                if as_json:
+                    _emit_json(
+                        {"ok": False, "error": str(e), "items": [], "remindable": []},
+                        ok=False,
+                    )
                 print(f"Ошибка: {e}", file=sys.stderr)
                 sys.exit(1)
                 return
@@ -367,12 +486,12 @@ def run(args: argparse.Namespace) -> CommandExitCode | None:
                         detected += 1
                 print(f"Назначений внешнего теста обнаружено: {detected}")
 
-        if not alert_new:
+        if not alert_new and not as_json:
             print(f"Собрано карточек переписки: {len(cards)}")
 
         skipped_ambiguous = 0
         for card in cards:
-            if not alert_new:
+            if not alert_new and not as_json:
                 print(
                     "[CORRELATION] "
                     f"vacancy_id={card.vacancy_id} topic={card.topic or '-'} "
@@ -427,6 +546,21 @@ def run(args: argparse.Namespace) -> CommandExitCode | None:
                 return CommandExitCode.NEW_INVITATIONS
             history.mark_responses_alert_success(alert_watermark)
             return None
+
+        if as_json:
+            remindable_ids = {str(ref.topic_id) for ref in remindable_refs}
+            _emit_json(
+                {
+                    "ok": True,
+                    "error": None,
+                    "items": [
+                        _card_payload(card, remindable_ids, message_previews)
+                        for card in cards
+                    ],
+                    "remindable": _remindable_payload(remindable_refs),
+                }
+            )
+            return
 
         print(
             f"Новых ответов: {inserted + updated} "

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import signal
 import sqlite3
 from pathlib import Path
@@ -208,6 +209,11 @@ def test_exit_codes_cover_persistence_and_sigterm() -> None:
     assert CommandExitCode.SIGTERM.value == 143
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="msvcrt.locking запирает байт-диапазон: чужой хендл не может прочитать "
+    "lock-файл (PermissionError), в отличие от advisory flock на POSIX",
+)
 def test_lock_file_contains_owner_metadata(tmp_path: Path) -> None:
     lock = tmp_path / ".hhru.lock"
     with acquire_write_lock(lock, command="probe --questionnaires-only"):

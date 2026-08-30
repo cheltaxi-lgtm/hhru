@@ -23,7 +23,10 @@ def _write_token(path: Path, value: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
     try:
-        os.fchmod(fd, 0o600)
+        # os.fchmod отсутствует на Windows (AttributeError); там mkstemp
+        # создаёт файл с ACL текущего пользователя, POSIX-режимы неприменимы.
+        if os.name != "nt":
+            os.fchmod(fd, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
             stream.write(value)
         os.replace(temp_name, path)

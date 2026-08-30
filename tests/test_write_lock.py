@@ -102,6 +102,7 @@ def test_lock_covers_all_hhru_write_commands():
         "edit-languages",
         "settings",
         "reject",
+        "remind",
         "review",
         "config",
         "backup",
@@ -109,6 +110,10 @@ def test_lock_covers_all_hhru_write_commands():
         "blacklist",
         "update",
         "report-vacancy",
+        "respond",
+        "login",
+        "login-code",
+        "import-cookies",
     }
 
 

@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
@@ -151,6 +152,11 @@ def test_malformed_metadata_values_are_ignored(tmp_path):
     assert build_bundle(db, run_id="wanted", dom_dir=tmp_path)["snapshots"] == []
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="alias строится через symlink_to — на Windows создание symlink "
+    "требует SeCreateSymbolicLinkPrivilege",
+)
 def test_export_path_aliases_are_detected_and_history_is_read_only(tmp_path):
     db = tmp_path / "history.db"
     with sqlite3.connect(db) as c:

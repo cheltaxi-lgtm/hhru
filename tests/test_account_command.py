@@ -7,6 +7,7 @@ import json
 import os
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -136,7 +137,9 @@ def test_run_list_prints_ascii_table(tmp_path, monkeypatch, capsys):
     output = capsys.readouterr().out
     assert "| name" in output and "config_path" in output and "history_exists" in output
     assert "session" in output and "last_action" in output
-    assert "| work" in output and "data/accounts/work/config.yaml" in output
+    # config_path печатается платформенным str(Path) — на Windows с backslash.
+    expected_path = str(Path("data") / "accounts" / "work" / "config.yaml")
+    assert "| work" in output and expected_path in output
     assert "нет" in output
 
 

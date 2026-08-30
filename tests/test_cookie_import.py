@@ -16,6 +16,11 @@ from hhru_bot.cookie_import import (
 
 pytestmark = pytest.mark.integration
 
+# Тесты POSIX-модели угроз (symlink-атаки, режимы 0o600): на Windows создание
+# symlink требует SeCreateSymbolicLinkPrivilege, а os.chmod управляет лишь
+# флагом read-only — проверяемые свойства там неприменимы.
+_POSIX_ONLY = pytest.mark.skipif(os.name == "nt", reason="POSIX threat model")
+
 
 def row(**overrides):
     value = {
@@ -110,6 +115,7 @@ def test_write_failure_does_not_corrupt_existing_session(tmp_path: Path, monkeyp
     assert json.loads(destination.read_text(encoding="utf-8")) == {"old": 1}
 
 
+@_POSIX_ONLY
 def test_write_does_not_widen_session_file_permissions(tmp_path: Path):
     # Codex re-review (PR #168, post-rebase): the temp-file-then-os.replace()
     # atomic write (added for the previous finding) creates a NEW inode with
@@ -203,6 +209,7 @@ def test_existing_directory_destination_is_rejected_without_chmod(tmp_path: Path
     assert destination.stat().st_mode & 0o777 == 0o755
 
 
+@_POSIX_ONLY
 def test_temp_file_is_never_world_readable_while_written(tmp_path: Path, monkeypatch):
     # Codex + /review re-review (PR #168): a previous fix called
     # tmp.chmod(0o600) AFTER tmp.write_text() had already created the file
@@ -237,6 +244,7 @@ def test_temp_file_is_never_world_readable_while_written(tmp_path: Path, monkeyp
         os.umask(old_umask)
 
 
+@_POSIX_ONLY
 def test_write_does_not_follow_preplanned_symlink_on_tmp_name(tmp_path: Path):
     # #171: temp-файл создавался по предсказуемому фиксированному имени
     # `<destination>.tmp` через os.open(O_CREAT|O_TRUNC) без O_EXCL — на
@@ -332,6 +340,7 @@ def test_default_profile_is_chrome_default(monkeypatch, tmp_path: Path):
     assert resolve_chrome_profile(None) == tmp_path / "Default"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="session 0600 is a POSIX mkstemp guarantee")
 def test_mode_check_failure_closes_fd_before_raising(tmp_path: Path, monkeypatch):
     # cycle-review PR #173 round 1 (claude/review): when the defence-in-depth
     # mode check (#171) finds mkstemp() returned an fd with the wrong mode,
@@ -363,6 +372,18 @@ def test_mode_check_failure_closes_fd_before_raising(tmp_path: Path, monkeypatch
     assert closed_fds, "mkstemp() fd was never closed after the mode check raised"
 
 
+@pytest.mark.skipif(os.name != "nt", reason="documents Windows mkstemp 0666")
+def test_write_storage_state_succeeds_on_windows_without_unix_0600(tmp_path: Path):
+    destination = tmp_path / "hh_session.json"
+    write_storage_state(
+        {"cookies": [{"name": "hhtoken", "value": "x"}], "origins": []},
+        destination,
+    )
+    saved = json.loads(destination.read_text(encoding="utf-8"))
+    assert saved["cookies"][0]["name"] == "hhtoken"
+
+
+@_POSIX_ONLY
 def test_backup_does_not_follow_preplanned_dangling_symlink(tmp_path: Path):
     # cycle-review PR #173 round 1 (codex, high/0.98): the backup-name loop
     # picked a candidate with `candidate.exists()`, which returns False for a
@@ -466,6 +487,7 @@ def test_backup_copy_failure_leaves_no_empty_bak_file(tmp_path: Path, monkeypatc
     assert not backup_candidate.exists(), "failed backup copy left an empty .bak file behind"
 
 
+@_POSIX_ONLY
 def test_backup_write_survives_symlink_swap_after_exclusive_create(tmp_path: Path, monkeypatch):
     # cycle-review PR #173 round 2 (codex, high/0.98): the backup inode was
     # created exclusively (O_CREAT|O_EXCL) and its fd closed, THEN

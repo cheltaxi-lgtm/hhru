@@ -74,6 +74,11 @@ class _FakeLocator:
         if self.count() == 0:
             raise PlaywrightTimeoutError("not present")
 
+    def filter(self, *, visible: bool | None = None) -> _FakeLocator:  # noqa: ARG002
+        # visible-фильтр success.py: фейк не различает скрытость, присутствие
+        # уже означает видимость в этой модели.
+        return self
+
 
 class _FakePage:
     """Имитация Playwright Page для сигналов подтверждения успеха.
@@ -138,8 +143,8 @@ def test_success_via_marker():
 
 
 def test_success_via_fallback_marker():
-    """Второй success-маркер из цепочки тоже подтверждает успех."""
-    page = _FakePage(markers={success.APPLY_SUCCESS_MARKERS[-1]})
+    """Запасной success-маркер из цепочки тоже подтверждает успех."""
+    page = _FakePage(markers={"[data-qa='vacancy-response-success']"})
     assert success.wait_success_confirmation(page) is True
 
 
@@ -184,7 +189,7 @@ def test_success_via_late_fallback_marker():
     — без дедупликации и без счёта в лимит → повторные попытки сверх лимита).
     """
     page = _FakePage(
-        late_markers={success.APPLY_SUCCESS_MARKERS[-1]},
+        late_markers={"[data-qa='vacancy-response-success']"},
         late_after=1,
     )
     assert success.wait_success_confirmation(page, timeout_ms=2000) is True
@@ -194,6 +199,17 @@ def test_success_via_late_text():
     """Cycle-3 fix: текст-признак отрендерился асинхронно после one-shot опроса."""
     page = _FakePage(late_success_text="Отклик отправлен", late_after=1)
     assert success.wait_success_confirmation(page, timeout_ms=2000) is True
+
+
+def test_vacancy_apply_button_is_not_success():
+    """Кнопка отклика на странице вакансии — не подтверждение отправки.
+
+    data-qa=vacancy-response-link-top это VACANCY_APPLY_BUTTON. Если считать
+    её success, бот пишет «отправил», а в Отправленных hh.ru пусто.
+    """
+    page = _FakePage(markers={"[data-qa='vacancy-response-link-top']"})
+    assert success.wait_success_confirmation(page, timeout_ms=0) is False
+    assert "[data-qa='vacancy-response-link-top']" not in success.APPLY_SUCCESS_MARKERS
 
 
 def test_submit_gone_alone_is_not_success():

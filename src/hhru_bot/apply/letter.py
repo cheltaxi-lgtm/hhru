@@ -93,6 +93,20 @@ class TemplateCoverLetterProvider:
         return outcome
 
 
+class FixedCoverLetterProvider:
+    """Готовый текст письма без .format — для внешнего клиента (Koplife Jobs)."""
+
+    def __init__(self, text: str):
+        self._text = text
+
+    def render(
+        self,
+        vacancy: VacancyCard,  # noqa: ARG002
+        resume_profile: AIProfile | None = None,  # noqa: ARG002
+    ) -> LetterOutcome:
+        return LetterOutcome(text=self._text, variant=VARIANT_TEMPLATE)
+
+
 # Рандомизация альтернатив {a|b|c} (#86): матчит {вариант1|вариант2|...} —
 # обязателен хотя бы один '|', альтернативы могут быть пустыми ({a||c} → иногда
 # пусто). Внутри группы не допускаются фигурные скобки (вложенность не нужна).

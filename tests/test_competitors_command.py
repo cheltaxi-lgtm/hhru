@@ -151,6 +151,11 @@ def test_competing_collect_returns_fail_without_traceback(tmp_path, monkeypatch,
     assert captured.err == ""
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Windows не доставляет SIGTERM/SIGHUP как POSIX: raise_signal(SIGTERM) "
+    "проходит по ветке SIGINT (код 130), SIGHUP отсутствует вовсе",
+)
 @pytest.mark.parametrize(
     ("signum", "expected"),
     [
@@ -585,6 +590,11 @@ sys.exit(0 if result is False else 1)
 """
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="Тест построен на pass_fds (наследование fd handshake-канала), "
+    "который subprocess на Windows не поддерживает",
+)
 def test_stdout_streams_progress_line_by_line_before_process_completes(tmp_path):
     """Long-running collect must not buffer stdout until exit (issue #632).
 

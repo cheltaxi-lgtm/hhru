@@ -132,6 +132,31 @@ def test_normalize_status_read_and_empty():
     assert normalize_status("   ") == ResponseStatus.READ
 
 
+def test_normalize_status_unseen_is_not_read():
+    assert normalize_status("Не просмотрено") == ResponseStatus.UNSEEN
+    assert normalize_status("Не просмотрен") == ResponseStatus.UNSEEN
+    assert normalize_status("отклик не просмотрен") == ResponseStatus.UNSEEN
+    # Живой бейдж hh.ru: неразрывный пробел, иначе ловилось как «просмотрен».
+    assert normalize_status("Не\xa0просмотрен") == ResponseStatus.UNSEEN
+    assert normalize_status("Не\xa0просмотрено") == ResponseStatus.UNSEEN
+
+
+def test_parse_response_card_unseen_badge_is_not_read():
+    html = """
+<div data-qa="negotiations-item">
+  <a href="/vacancy/777777?hhtmFrom=negotiation_list">
+    <div><span data-qa="negotiations-item-vacancy">Коммерческий директор</span></div>
+  </a>
+  <span data-qa="negotiations-tag negotiations-item-not-viewed">Не просмотрен</span>
+</div>
+"""
+    page = NegotiationsPage(html)
+    item = parse_response_card(page.items[0])
+    assert item is not None
+    assert item.status == ResponseStatus.UNSEEN
+    assert item.raw_status == "Не просмотрен"
+
+
 def test_normalize_status_unknown_preserved():
     assert normalize_status("Какой-то новый бейдж") == ResponseStatus.UNKNOWN
 
@@ -214,6 +239,7 @@ def test_parse_response_card_invitation():
     assert item.chat_url == "https://hh.ru/applicant/negotiations?topic=1"
     assert item.topic == "1"  # идентификатор переписки извлечён из chat_url
     assert item.date == "сегодня, 14:05"
+    assert item.title == "Python Developer"
 
 
 def test_parse_response_card_discard_no_chat_link_falls_back_to_vacancy():

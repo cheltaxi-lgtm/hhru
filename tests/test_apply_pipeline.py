@@ -806,6 +806,30 @@ def test_apply_submit_unconfirmed_external_found_is_success(monkeypatch):
     assert verifier.calls == [(page, "1", "RID")]
 
 
+def test_apply_ui_success_external_not_found_is_fail():
+    """Локальный success-тост без карточки в Отправленных — не success.
+
+    Иначе Telegram пишет «отправил», а на hh.ru отклика нет (живой случай
+    2026-08-30, vacancy 2060).
+    """
+    verifier = _verifier("not_found")
+    page = FakePage(apply_button=True, success=True, submit_in_form=True)
+    result = apply_to_vacancy(page, _vacancy(), "RID", "x", dry_run=False, verifier=verifier)
+    assert result.success is False
+    assert result.acted is True
+    assert "нет" in result.reason
+    assert verifier.calls == [(page, "1", "RID")]
+
+
+def test_apply_ui_success_external_found_stays_success():
+    verifier = _verifier("found", "topic=42, resumeId=RID")
+    page = FakePage(apply_button=True, success=True, submit_in_form=True)
+    result = apply_to_vacancy(page, _vacancy(), "RID", "x", dry_run=False, verifier=verifier)
+    assert result.success is True
+    assert "negotiations" in result.reason
+    assert verifier.calls == [(page, "1", "RID")]
+
+
 def test_apply_submit_unconfirmed_external_not_found_stays_failed(monkeypatch):
     """Подтверждённое внешней проверкой ОТСУТСТВИЕ отклика — вердикт не меняется:
     failed c acted=True (осознанный fail-closed #163, теперь ещё и проверенный)."""

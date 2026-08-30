@@ -49,6 +49,10 @@ def _args(config_path, history_path, **overrides) -> argparse.Namespace:
         "since_hours": 0.0,
         "headless": False,
         "detect_external_tests": False,
+        "json": False,
+        "with_messages": False,
+        "remindable": False,
+        "sync_applied": False,
     }
     base.update(overrides)
     return argparse.Namespace(**base)
@@ -649,3 +653,107 @@ def test_responses_run_skips_upsert_for_ambiguous_topic_cards(capsys, tmp_path, 
     assert "v_ok" in vacancy_ids
     assert "v_ambiguous" not in vacancy_ids
     assert "Пропущено записей с неоднозначным topic: 1" in out
+
+
+def test_responses_json_emits_live_snapshot(capsys, tmp_path, monkeypatch):
+    import contextlib
+    import json
+
+    from hhru_bot.negotiations_probe import RemindableTopicRef
+    from hhru_bot.responses import ResponseItem, ResponseStatus
+
+    config = _write_config(tmp_path, _minimal_config())
+
+    class _FakeContext:
+        def new_page(self):
+            return object()
+
+    @contextlib.contextmanager
+    def _fake_launch_context(*_args, **_kwargs):
+        yield _FakeContext()
+
+    cards = [
+        ResponseItem(
+            vacancy_id="111",
+            status=ResponseStatus.INVITATION,
+            employer="ACME",
+            topic="7",
+            title="Директор ДЦ",
+            chat_url="https://hh.ru/applicant/negotiations?topic=7",
+        )
+    ]
+
+    def _fake_fetch(_page, **kwargs):
+        out = kwargs.get("remindable_out")
+        if out is not None:
+            out.append(RemindableTopicRef("7", "c1", "111", "ACME", "Директор ДЦ"))
+        return cards
+
+    monkeypatch.setattr("hhru_bot.browser.launch_context", _fake_launch_context)
+    monkeypatch.setattr(
+        "hhru_bot.commands.responses.fetch_responses", _fake_fetch, raising=False
+    )
+    monkeypatch.setattr("hhru_bot.responses.fetch_responses", _fake_fetch)
+
+    responses_cmd.run(_args(config, tmp_path / "h.db", json=True, since_hours=0.0))
+    out = capsys.readouterr().out
+    payload = json.loads(out.strip().splitlines()[-1])
+    assert payload["ok"] is True
+    assert payload["items"][0]["vacancy_id"] == "111"
+    assert payload["items"][0]["title"] == "Директор ДЦ"
+    assert payload["items"][0]["remindable"] is True
+    assert payload["remindable"][0]["topic"] == "7"
+    assert "Ответы работодателей" not in out
+    assert "last_message" not in payload["items"][0]
+
+
+def test_responses_json_with_messages_attaches_preview(capsys, tmp_path, monkeypatch):
+    import contextlib
+    import json
+
+    from hhru_bot.negotiations_probe import TopicRef
+    from hhru_bot.responses import ResponseItem, ResponseStatus
+
+    config = _write_config(tmp_path, _minimal_config())
+
+    class _FakeContext:
+        def new_page(self):
+            return object()
+
+    @contextlib.contextmanager
+    def _fake_launch_context(*_args, **_kwargs):
+        yield _FakeContext()
+
+    card = ResponseItem(
+        vacancy_id="111",
+        status=ResponseStatus.RESPONSE,
+        employer="ACME",
+        topic="7",
+        title="Директор ДЦ",
+    )
+
+    monkeypatch.setattr("hhru_bot.browser.launch_context", _fake_launch_context)
+    monkeypatch.setattr(
+        "hhru_bot.commands.responses.fetch_responses",
+        lambda *_args, **_kwargs: [card],
+        raising=False,
+    )
+    monkeypatch.setattr("hhru_bot.responses.fetch_responses", lambda *_a, **_k: [card])
+    monkeypatch.setattr(
+        "hhru_bot.negotiations_probe.paginated_topic_refs",
+        lambda *_a, **_k: [TopicRef("7", "c1", "111")],
+    )
+    monkeypatch.setattr(
+        "hhru_bot.negotiations_chat.read_chat_previews",
+        lambda *_a, **_k: {
+            "7": {"id": "m1", "author": "employer", "text": "Когда можете выйти?"}
+        },
+    )
+
+    responses_cmd.run(
+        _args(config, tmp_path / "h.db", json=True, with_messages=True, since_hours=0.0)
+    )
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert payload["items"][0]["last_message"]["text"] == "Когда можете выйти?"
+    assert payload["items"][0]["last_message"]["author"] == "employer"
+
