@@ -591,7 +591,7 @@ def discover_declared_selectors() -> dict[str, dict[str, Any]]:
         if path.name == "_generated.py":
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        module = str(path.relative_to(SOURCE_ROOT).with_suffix("")).replace("/", ".")
+        module = path.relative_to(SOURCE_ROOT).with_suffix("").as_posix().replace("/", ".")
         if module.startswith("selector_groups."):
             module = module.removeprefix("selector_groups.")
         for node in tree.body:

@@ -87,7 +87,7 @@ def check_refs(root: Path) -> list[str]:
                 continue
             url = source.get("url")
             ref = source.get("ref")
-            label = f"{relative_path} plugins[{index}]"
+            label = f"{relative_path.as_posix()} plugins[{index}]"
             if not isinstance(url, str) or not url:
                 errors.append(f"{label} has no Git URL")
                 continue

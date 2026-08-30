@@ -1,5 +1,6 @@
 """Unit tests for named-account path resolution."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -86,6 +87,7 @@ def test_resolve_account_paths_rejects_traversal_before_touching_filesystem(
         resolve_account_paths(name, data_dir=tmp_path)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlink creation needs POSIX or Windows privileges")
 def test_resolve_account_paths_rejects_symlink_escaping_accounts_root(tmp_path: Path):
     outside = tmp_path / "outside"
     outside.mkdir()

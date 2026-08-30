@@ -104,6 +104,10 @@ def test_hhru_exe_reexecs_real_upgrade_before_pip_replaces_launcher(tmp_path: Pa
     environment.update(
         {
             "CODEX_HOME": str(tmp_path / "codex-home"),
+            # plugin-cache копируется без .git — без потолка git rev-parse
+            # находит репозиторий выше по дереву (напр. в корне диска) и
+            # приписывает кэшу чужой commit, ломая сверку provenance.
+            "GIT_CEILING_DIRECTORIES": str(tmp_path),
             "HHRU_TEST_CHECKOUT": str(checkout),
             "HHRU_TEST_CODEX_LOG": str(tmp_path / "codex.log"),
             "HHRU_TEST_PLUGIN_CACHE": str(plugin_cache),

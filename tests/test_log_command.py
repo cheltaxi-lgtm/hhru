@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -238,6 +239,7 @@ def test_follow_survives_truncation(tmp_path):
     assert "fresh1" in joined and "fresh2" in joined
 
 
+@pytest.mark.skipif(os.name == "nt", reason="rename-rotation of an open file is POSIX semantics")
 def test_follow_switches_to_active_file_after_rename_rotation(tmp_path):
     """Rename-based rotation does not leave ``log -f`` on the old inode."""
     path = _log_file(tmp_path, ["old"])

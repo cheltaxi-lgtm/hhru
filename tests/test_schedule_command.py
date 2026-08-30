@@ -299,7 +299,9 @@ def test_shipped_scheduler_configs_have_one_persistent_log_writer(path):
 
 
 def test_scheduled_wrapper_surfaces_expired_session():
-    script = (Path(__file__).parents[1] / "scripts" / "scheduled_run.sh").read_text()
+    script = (Path(__file__).parents[1] / "scripts" / "scheduled_run.sh").read_text(
+        encoding="utf-8"
+    )
 
     assert "SESSION_EXPIRED_EXIT_CODE=78" in script
     assert 'if [[ "${status}" -eq "${SESSION_EXPIRED_EXIT_CODE}" ]]' in script

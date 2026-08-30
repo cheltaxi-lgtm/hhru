@@ -26,6 +26,7 @@ def _write_account(tmp_path: Path, *, session: bool = True) -> tuple[Path, Path]
     return account_dir, session_path
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX chmod permission bits are not available on Windows")
 def test_diagnostics_reports_weak_session_permissions_without_reading_secret(
     tmp_path, monkeypatch, capsys
 ):

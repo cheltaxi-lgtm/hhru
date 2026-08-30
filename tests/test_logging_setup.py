@@ -133,6 +133,7 @@ handler.close()
     assert (tmp_path / "hhru_bot.log.2").exists()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="inode-replacement rotation is POSIX semantics")
 def test_rollover_does_not_truncate_inode_replaced_externally(tmp_path: Path):
     """An external rename cannot make the handler erase the old segment."""
     log_file = tmp_path / "hhru_bot.log"
@@ -156,6 +157,7 @@ def test_rollover_does_not_truncate_inode_replaced_externally(tmp_path: Path):
     assert "new" in log_file.read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="rename/create gap with open descriptor is POSIX semantics")
 def test_missing_active_path_does_not_truncate_renamed_segment(tmp_path: Path):
     """A rename/create gap must preserve the still-open archived descriptor."""
     log_file = tmp_path / "hhru_bot.log"

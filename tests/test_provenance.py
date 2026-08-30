@@ -76,7 +76,11 @@ def test_editable_checkout_uses_git_identity_not_manifest_version(tmp_path: Path
     )
 
 
-def test_plugin_cache_reports_missing_provenance(tmp_path: Path):
+def test_plugin_cache_reports_missing_provenance(tmp_path: Path, monkeypatch):
+    # tmp_path живёт под %TEMP% — если выше по дереву есть .git (напр. репозиторий
+    # в корне диска), git rev-parse найдёт его и припишет чужой SHA. Потолок
+    # отсекает обход родителей выше tmp_path.
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
     root = tmp_path / "cache" / "0.1.0" / ".codex-plugin"
     root.mkdir(parents=True)
     (root / "plugin.json").write_text(
@@ -124,7 +128,11 @@ def test_noneditable_package_inside_checkout_does_not_inherit_checkout_sha(tmp_p
     assert _git_identity("installed CLI", package, require_package_source=True) is None
 
 
-def test_manifest_provenance_is_used_when_cache_has_no_git_directory(tmp_path: Path):
+def test_manifest_provenance_is_used_when_cache_has_no_git_directory(
+    tmp_path: Path, monkeypatch
+):
+    # См. test_plugin_cache_reports_missing_provenance: отсекаем .git выше tmp_path.
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
     root = tmp_path / "cache" / "0.2.0" / ".codex-plugin"
     root.mkdir(parents=True)
     (root / "plugin.json").write_text(
