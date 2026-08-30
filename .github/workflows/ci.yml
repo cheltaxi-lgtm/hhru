@@ -16,6 +16,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Install dependencies
         run: |
@@ -55,6 +58,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            pyproject.toml
 
       - name: Install dependencies
         run: |
@@ -64,7 +70,7 @@ jobs:
 
       - name: Windows-targeted pytest subset
         run: |
-          python -m pytest tests/test_backup.py tests/test_cookie_import.py tests/test_auth_code.py tests/test_reliability_bundle.py tests/test_competitors_command.py -q
+          python -m pytest tests/test_backup.py tests/test_cookie_import.py tests/test_auth_code.py tests/test_reliability_bundle.py tests/test_competitors_command.py tests/test_write_lock.py -q
 
   packaging:
     # Страховка, что упакованный дистрибутив (wheel) работает при `pip install .`,

@@ -218,9 +218,7 @@ def run(args: argparse.Namespace) -> None:
             )
         print("Ошибка: --max-pages должен быть положительным", file=sys.stderr)
         sys.exit(2)
-    fresh_only = (
-        args.since_hours <= 0 and not remindable_only and not sync_applied and not as_json
-    )
+    fresh_only = args.since_hours <= 0 and not remindable_only and not sync_applied and not as_json
     since_fetch = datetime.now() - timedelta(hours=args.since_hours)
     # Для сводки «что нового»: в режиме history-only берём вообще всё (min), иначе —
     # окно since-fetch. datetime.min — «любая status_changed_at подходит».
@@ -403,8 +401,7 @@ def run(args: argparse.Namespace) -> None:
                     "ok": True,
                     "error": None,
                     "items": [
-                        _card_payload(card, remindable_ids, message_previews)
-                        for card in cards
+                        _card_payload(card, remindable_ids, message_previews) for card in cards
                     ],
                     "remindable": _remindable_payload(remindable_refs),
                 }

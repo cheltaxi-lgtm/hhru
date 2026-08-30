@@ -302,9 +302,7 @@ def test_responses_json_emits_live_snapshot(capsys, tmp_path, monkeypatch):
         return cards
 
     monkeypatch.setattr("hhru_bot.browser.launch_context", _fake_launch_context)
-    monkeypatch.setattr(
-        "hhru_bot.commands.responses.fetch_responses", _fake_fetch, raising=False
-    )
+    monkeypatch.setattr("hhru_bot.commands.responses.fetch_responses", _fake_fetch, raising=False)
     monkeypatch.setattr("hhru_bot.responses.fetch_responses", _fake_fetch)
 
     responses_cmd.run(_args(config, tmp_path / "h.db", json=True, since_hours=0.0))
@@ -357,9 +355,7 @@ def test_responses_json_with_messages_attaches_preview(capsys, tmp_path, monkeyp
     )
     monkeypatch.setattr(
         "hhru_bot.negotiations_chat.read_chat_previews",
-        lambda *_a, **_k: {
-            "7": {"id": "m1", "author": "employer", "text": "Когда можете выйти?"}
-        },
+        lambda *_a, **_k: {"7": {"id": "m1", "author": "employer", "text": "Когда можете выйти?"}},
     )
 
     responses_cmd.run(
@@ -368,4 +364,3 @@ def test_responses_json_with_messages_attaches_preview(capsys, tmp_path, monkeyp
     payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert payload["items"][0]["last_message"]["text"] == "Когда можете выйти?"
     assert payload["items"][0]["last_message"]["author"] == "employer"
-

@@ -615,8 +615,12 @@ def test_apply_non_dry_run_success_when_submit_scoped_in_form():
     # non-dry-run путь доходит до detect_questions; когда submit корректно
     # обёрнут в <form> (обычный случай на реальном hh.ru), форма без вопросов
     # проходит как раньше — success, не regression от round-2 fix.
+    # Верификатор обязателен: продакшн-проводки всегда передают его, а
+    # локальный success-маркер без внешней сверки больше не считается успехом.
     page = FakePage(apply_button=True, success=True, submit_in_form=True)
-    result = apply_to_vacancy(page, _vacancy(), "RID", "x", dry_run=False)
+    result = apply_to_vacancy(
+        page, _vacancy(), "RID", "x", dry_run=False, verifier=_verifier("found", "topic=1")
+    )
     assert result.success is True
     assert result.skipped is False
     assert result.acted is True  # #163: submit выполнен — пауза обязательна
@@ -782,6 +786,21 @@ def _verifier(status: str, detail: str = ""):
 
     verifier.calls = calls
     return verifier
+
+
+def test_apply_local_success_without_verifier_is_uncertain_not_success():
+    """Fail-closed: локальный UI-сигнал без внешней сверки — НЕ success.
+
+    Маркеры вроде vacancy-response-link-top ловили ложные «успехи» (в
+    /applicant/negotiations пусто). Без verifier'а pipeline обязан вернуть
+    uncertain-fail: acted=True (submit был), uncertain=True (has_applied
+    отсечёт дубликат), success=False."""
+    page = FakePage(apply_button=True, success=True, submit_in_form=True)
+    result = apply_to_vacancy(page, _vacancy(), "RID", "x", dry_run=False, verifier=None)
+    assert result.success is False
+    assert result.acted is True
+    assert result.uncertain is True
+    assert "внешней проверки" in result.reason
 
 
 def test_apply_submit_unconfirmed_external_found_is_success(monkeypatch):
@@ -1065,7 +1084,14 @@ def test_apply_force_gate_is_per_vacancy_not_whole_run(monkeypatch):
     page = FakePage(apply_button=True, success=True, submit_in_form=True)
 
     result = apply_to_vacancy(
-        page, _vacancy(), "RID", "x", dry_run=False, question_answerer=_StubAnswerer(), force=False
+        page,
+        _vacancy(),
+        "RID",
+        "x",
+        dry_run=False,
+        question_answerer=_StubAnswerer(),
+        force=False,
+        verifier=_verifier("found", "topic=1"),
     )
 
     assert result.success is True
@@ -1219,6 +1245,7 @@ def test_apply_questionnaire_audit_records_profile_fill_and_run_id(monkeypatch):
         force=True,
         questionnaire_history=history,
         run_id="run-473",
+        verifier=_verifier("found", "topic=1"),
     )
 
     assert result.success is True

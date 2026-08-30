@@ -447,9 +447,7 @@ def fetch_responses(
                     logger.warning("SSR remindable unavailable: %s", exc)
             if strict_empty:
                 raw_topics = (
-                    parse_initial_state(html)
-                    .get("applicantNegotiations", {})
-                    .get("topicList")
+                    parse_initial_state(html).get("applicantNegotiations", {}).get("topicList")
                 )
                 if not isinstance(raw_topics, list) or any(
                     not isinstance(ref, dict)

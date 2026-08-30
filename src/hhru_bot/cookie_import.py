@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import sys
 import tempfile
 from collections.abc import Iterable
 from pathlib import Path
@@ -26,7 +27,24 @@ SAMESITE = {-1: "Lax", 0: "None", 1: "Lax", 2: "Strict"}
 # нельзя — это откроет сессию другим пользователям машины.
 _POSIX_SESSION_MODE = 0o600
 
-DEFAULT_CHROME_PROFILES_ROOT = Path.home() / "Library/Application Support/Google/Chrome"
+
+def _default_chrome_profiles_root() -> Path:
+    """Стандартный корень профилей Chrome для текущей ОС.
+
+    Раньше был захардкожен macOS-путь — на Windows `--profile Default`
+    резолвился в несуществующее дерево и падал с непонятной ошибкой.
+    """
+    if sys.platform == "darwin":
+        return Path.home() / "Library/Application Support/Google/Chrome"
+    if os.name == "nt":
+        local = os.environ.get("LOCALAPPDATA")
+        if local:
+            return Path(local) / "Google/Chrome/User Data"
+        return Path.home() / "AppData/Local/Google/Chrome/User Data"
+    return Path.home() / ".config/google-chrome"
+
+
+DEFAULT_CHROME_PROFILES_ROOT = _default_chrome_profiles_root()
 DEFAULT_CHROME_PROFILE_NAME = "Default"
 
 

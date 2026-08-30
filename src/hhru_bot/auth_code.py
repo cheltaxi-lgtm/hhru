@@ -146,7 +146,7 @@ def _click_robot_continue(page) -> None:
                     return
             except (PlaywrightError, PlaywrightTimeoutError, AssertionError, AttributeError):
                 continue
-    for selector in ("text=Дальше", "button:has-text(\"Дальше\")"):
+    for selector in ("text=Дальше", 'button:has-text("Дальше")'):
         if _locator_visible(page, selector):
             page.locator(selector).first.click()
             page.wait_for_timeout(800)
@@ -177,7 +177,7 @@ def _submit_text_captcha_answer(page, answer: str) -> None:
     for selector in (
         CAPTCHA_MODAL_SUBMIT,
         "[data-qa='modal-overlay'] button[type='submit']",
-        "button:has-text(\"Отправить\")",
+        'button:has-text("Отправить")',
     ):
         if _locator_visible(page, selector):
             page.locator(selector).first.click()
@@ -310,9 +310,7 @@ def login_with_code(
                 if _locator_visible(page, LOGIN_CODE_INPUT):
                     break
                 if _has_vendor_captcha(page):
-                    raise RuntimeError(
-                        "hh.ru показал интерактивную капчу без текстового поля"
-                    )
+                    raise RuntimeError("hh.ru показал интерактивную капчу без текстового поля")
                 if _has_captcha_challenge(page):
                     if captcha_file is None or image_path is None:
                         raise RuntimeError("hh.ru требует капчу")

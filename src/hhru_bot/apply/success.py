@@ -37,8 +37,6 @@ from collections.abc import Callable
 
 from playwright.sync_api import Page
 
-from .locators import first_locator
-
 logger = logging.getLogger("hhru_bot.apply.success")
 
 # Основной success-маркер — НЕ подтверждено (требует логина). Оставлен как
@@ -68,8 +66,17 @@ APPLY_SUCCESS_TEXT_RE = re.compile(r"отклик отправлен|вы отк
 
 
 def _signal_marker(page: Page) -> bool:
-    """Сигнал 1: виден ли хоть один CSS success-маркер."""
-    return first_locator(page, *APPLY_SUCCESS_MARKERS) is not None
+    """Сигнал 1: виден ли хоть один CSS success-маркер.
+
+    Только ВИДИМЫЕ узлы: страница вакансии может держать скрытые
+    template-узлы с теми же data-qa (dormant-разметка попапа), и count()>0
+    по ним давал бы локальный false-positive. Текстовый сигнал ниже уже
+    фильтрует visible — маркеры приводим к тому же контракту.
+    """
+    for selector in APPLY_SUCCESS_MARKERS:
+        if page.locator(selector).filter(visible=True).count() > 0:
+            return True
+    return False
 
 
 def _signal_text(page: Page) -> bool:

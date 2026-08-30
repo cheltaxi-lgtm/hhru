@@ -10,7 +10,7 @@ from pathlib import Path
 LOG_DIR = Path.cwd() / "data" / "logs"
 
 
-def setup_logging(verbose: bool = False) -> None:
+def setup_logging(verbose: bool = False, *, json_mode: bool = False) -> None:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_file = LOG_DIR / "hhru_bot.log"
 
@@ -27,6 +27,10 @@ def setup_logging(verbose: bool = False) -> None:
 
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
+    if json_mode:
+        # Машинные клиенты (Telegram-бот) читают stdout как JSON и показывают
+        # stderr пользователю как текст ошибки — INFO-спам туда нельзя.
+        console_handler.setLevel(logging.WARNING)
     root.addHandler(console_handler)
 
     file_handler = logging.FileHandler(log_file, encoding="utf-8")

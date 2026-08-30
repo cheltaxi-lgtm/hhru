@@ -101,6 +101,16 @@ def run(args: argparse.Namespace) -> bool:
     except LimitReached as exc:
         return fail(str(exc), skipped=True)
 
+    if history.has_applied(resume.resume_id, vacancy.vacancy_id):
+        # Дедуп до запуска браузера: без него повторный respond на ту же
+        # вакансию доезжал до hh.ru и сжигал время/лимиты (apply/run такой
+        # pre-check имеют, respond — нет).
+        return fail(
+            "уже откликались на эту вакансию",
+            skipped=True,
+            skip_reason="already_applied",
+        )
+
     action_id: int | None = None
 
     def _before_submit() -> None:
