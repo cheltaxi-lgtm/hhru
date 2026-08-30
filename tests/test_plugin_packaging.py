@@ -16,7 +16,7 @@ def _repo_root() -> Path:
 
 def test_codex_plugin_manifest_exposes_all_skills():
     root = _repo_root()
-    manifest = json.loads((root / ".codex-plugin" / "plugin.json").read_text())
+    manifest = json.loads((root / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
 
     assert manifest["name"] == "hhru-cc-plugin"
     assert manifest["skills"] == "./skills/"
@@ -31,7 +31,7 @@ def test_codex_plugin_manifest_exposes_all_skills():
 
 def test_codex_repo_marketplace_points_to_the_team_plugin():
     root = _repo_root()
-    marketplace = json.loads((root / ".agents" / "plugins" / "marketplace.json").read_text())
+    marketplace = json.loads((root / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8"))
     plugin = marketplace["plugins"][0]
 
     assert marketplace["name"] == "hhru"
@@ -50,7 +50,9 @@ def test_codex_repo_marketplace_points_to_the_team_plugin():
 
 def test_shared_skills_use_the_installed_hhru_cli():
     root = _repo_root()
-    skill_text = "\n".join(path.read_text() for path in (root / "skills").glob("*/SKILL.md"))
+    skill_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in (root / "skills").glob("*/SKILL.md")
+    )
 
     assert "CLAUDE_PLUGIN_ROOT" not in skill_text
     assert "hhru " in skill_text
@@ -61,7 +63,7 @@ def test_all_codex_skills_request_browser_permission_before_first_launch():
     skills = sorted((root / "skills").glob("*/SKILL.md"))
 
     for path in skills:
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         assert "sandbox_permissions=require_escalated" in text, path
         assert "перв" in text.casefold(), path
         assert "elevated-разрешение" in text.casefold(), path
@@ -69,7 +71,7 @@ def test_all_codex_skills_request_browser_permission_before_first_launch():
 
 def test_hhru_skill_keeps_long_commands_observable_until_exit():
     root = _repo_root()
-    text = (root / "skills" / "hhru" / "SKILL.md").read_text()
+    text = (root / "skills" / "hhru" / "SKILL.md").read_text(encoding="utf-8")
 
     assert "run_in_background" in text
     assert "--execution-mode foreground" in text

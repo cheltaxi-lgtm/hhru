@@ -8,7 +8,12 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    # Тесты запускают bash-скрипт scripts/live_test.sh и sh-стаб `pytest` —
+    # на Windows нет ни sh-ассоциации для .sh, ни исполнения скриптов-заглушек.
+    pytest.mark.skipif(os.name == "nt", reason="тесты запускают POSIX shell-скрипт"),
+]
 
 
 SCRIPT = Path(__file__).parents[1] / "scripts" / "live_test.sh"

@@ -118,6 +118,16 @@ def test_resolve_resumes_by_registered_hash(tmp_path):
     assert resumes[0].id == "backend"
 
 
+def test_bump_resolves_bare_hash_and_multiple_flags(tmp_path):
+    from hhru_bot.commands.bump import resumes_for_bump
+
+    config = load_config(_write_config(tmp_path, _config_body()))
+    args = SimpleNamespace(resume=[REMOTE_ONLY_HASH, "backend"])
+    resumes = resumes_for_bump(config, args)
+    assert [item.resume_id for item in resumes] == [REMOTE_ONLY_HASH, "11111111"]
+    assert resumes[0].resume_url.endswith(REMOTE_ONLY_HASH)
+
+
 # --- команды: publish-resume работает по resume_id без config.yaml-записи -----
 
 

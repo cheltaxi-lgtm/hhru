@@ -36,7 +36,10 @@ def test_browser_command_registry_is_complete() -> None:
         "refresh-token",
         "rename-resume",
         "reply-employers",
+        "respond",
+        "remind",
         "responses",
+        "resumes-dump",
         "resume-position",
         "resume-sections",
         "resume-visibility",
@@ -57,7 +60,7 @@ def test_registry_covers_command_modules_that_call_launch_context() -> None:
     direct_browser_commands = {
         path.stem.replace("_", "-")
         for path in commands_dir.glob("*.py")
-        if "launch_context" in path.read_text()
+        if "launch_context" in path.read_text(encoding="utf-8")
     }
 
     assert direct_browser_commands - {"list-resumes", "whoami"} <= cli.BROWSER_COMMANDS

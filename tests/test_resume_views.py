@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 
@@ -36,6 +37,8 @@ def test_parse_resume_view_history_reads_ssr_and_limit():
             "employer": "Acme",
             "source_id": None,
             "viewed_at": "2026-08-20T00:00:00+00:00",
+            "area": None,
+            "vacancies": [],
         }
     ]
 
@@ -72,6 +75,34 @@ def test_canonicalize_viewed_at_normalizes_offsets_to_utc():
     assert _canonicalize_viewed_at("2026-08-20T13:00:00+03:00") == _canonicalize_viewed_at(
         "2026-08-20T10:00:00Z"
     )
+
+
+def test_parse_resume_view_history_reads_area_and_vacancies():
+    html = _html(
+        {
+            "applicantResumeViewHistory": {
+                "historyViews": [
+                    {
+                        "date": "2026-08-20",
+                        "employerId": 9,
+                        "employerName": "Автомир",
+                        "area": {"name": "Екатеринбург"},
+                        "vacancies": [
+                            {
+                                "id": 55,
+                                "name": "Директор дилерского центра",
+                                "area": {"name": "Екатеринбург"},
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+    )
+    rows = parse_resume_view_history(html, "r1")
+    assert rows[0]["area"] == "Екатеринбург"
+    assert rows[0]["vacancies"][0]["title"] == "Директор дилерского центра"
+    assert rows[0]["vacancies"][0]["url"] == "https://hh.ru/vacancy/55"
 
 
 def test_parse_resume_view_history_fails_closed_on_schema_drift():
@@ -125,6 +156,77 @@ def test_has_next_page_uses_confirmed_numeric_pager():
 
     assert has_next_page(Page(), 0)
     assert not has_next_page(Page(), 1)
+
+
+def test_history_page_url_uses_numeric_resume_id() -> None:
+    from hhru_bot.resume_views import history_page_url
+
+    assert history_page_url(277045174, 0).endswith("resumeId=277045174&page=0")
+    assert "resume=" not in history_page_url("277045174")
+
+
+def test_parse_resume_view_history_reads_year_day_companies() -> None:
+    ms = int(datetime(2026, 8, 27, 6, 0, tzinfo=UTC).timestamp() * 1000)
+    html = _html(
+        {
+            "applicantResumeViewHistory": {
+                "historyViews": {
+                    "years": [
+                        {
+                            "year": 2026,
+                            "days": [
+                                {
+                                    "day": 27,
+                                    "month": 8,
+                                    "companies": [
+                                        {
+                                            "id": 9,
+                                            "name": "Автомир",
+                                            "views": [ms, ms + 1000],
+                                            "viewed": True,
+                                        }
+                                    ],
+                                }
+                            ],
+                        }
+                    ],
+                    "total": 2,
+                    "new": 0,
+                },
+                "paging": {"itemsNumber": 2, "currentPage": 0, "itemsOnPage": 100},
+            }
+        }
+    )
+    rows = parse_resume_view_history(html, "r1")
+    assert len(rows) == 2
+    assert rows[0]["employer"] == "Автомир"
+    assert rows[0]["employer_id"] == "9"
+    assert rows[0]["viewed_at"] == datetime.fromtimestamp(ms / 1000, tz=UTC).isoformat()
+    assert rows[0]["source_id"] == f"9:{ms}"
+    assert rows[1]["source_id"] == f"9:{ms + 1000}"
+
+
+def test_ssr_history_has_more_from_paging() -> None:
+    from hhru_bot.resume_views import ssr_history_has_more
+
+    more = _html(
+        {
+            "applicantResumeViewHistory": {
+                "historyViews": {"years": [], "total": 0, "new": 0},
+                "paging": {"itemsNumber": 150, "currentPage": 0, "itemsOnPage": 100},
+            }
+        }
+    )
+    done = _html(
+        {
+            "applicantResumeViewHistory": {
+                "historyViews": {"years": [], "total": 0, "new": 0},
+                "paging": {"itemsNumber": 54, "currentPage": 0, "itemsOnPage": 100},
+            }
+        }
+    )
+    assert ssr_history_has_more(more) is True
+    assert ssr_history_has_more(done) is False
 
 
 def test_history_deduplicates_resume_view_snapshots(tmp_path):

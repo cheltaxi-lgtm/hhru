@@ -127,6 +127,9 @@ def test_all_commands_registered():
         "backup",
         "restore",
         "resume-views",
+        "resumes-dump",
+        "respond",
+        "remind",
         "review",
         "uncertain",
         "diagnostics",
@@ -195,6 +198,9 @@ def test_register_commands_returns_names():
         "reject",
         "backup",
         "resume_views",
+        "resumes_dump",
+        "respond",
+        "remind",
         "review",
         "uncertain",
         "diagnostics",
@@ -333,6 +339,23 @@ def test_apply_has_limit():
     assert "--limit" in opts
 
 
+def test_respond_takes_letter_file_and_vacancy():
+    opts = _opts_for("respond")
+    assert "--resume" in opts
+    assert "--letter-file" in opts
+    assert "--vacancy-url" in opts
+    assert "--json" in opts
+
+
+def test_remind_takes_topic_force_json():
+    opts = _opts_for("remind")
+    assert "--topic" in opts
+    assert "--force" in opts
+    assert "--json" in opts
+    assert "--chat-url" in opts
+    assert "--dry-run" not in opts
+
+
 def test_restore_has_no_dead_dry_run_flag():
     # restore's dry-run behavior is controlled entirely by --apply (absent =
     # dry-run, present = apply); a separate --dry-run flag was parsed but
@@ -373,6 +396,14 @@ def test_bump_no_limit():
     assert "--resume" in opts
     assert "--dry-run" in opts
     assert "--limit" not in opts
+
+
+def test_bump_resume_can_repeat():
+    parser = _build()
+    args = parser.parse_args(
+        ["bump", "--resume", "aaa111", "--resume", "bbb222"]
+    )
+    assert args.resume == ["aaa111", "bbb222"]
 
 
 def test_probe_has_vacancy_args():
@@ -451,6 +482,7 @@ def test_responses_has_resume_max_pages_since_hours():
     assert "--resume" in opts
     assert "--max-pages" in opts
     assert "--since-hours" in opts
+    assert "--json" in opts
     # responses — read-only мониторинг: нет --dry-run (ничего не отправляет),
     # нет дневного лимита/--limit (не делает действий, подлежащих лимиту).
     assert "--dry-run" not in opts

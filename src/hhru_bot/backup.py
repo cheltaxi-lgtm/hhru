@@ -64,6 +64,8 @@ def _sqlite_snapshot(source: Path, destination: Path) -> None:
         dst.commit()
     finally:
         dst.close()
+        # src тоже закрываем: на Windows открытый хендл запрещает
+        # rename/replace исходного файла (WinError 32) при restore.
         src.close()
 
 
@@ -155,7 +157,10 @@ def create_backup(
         fd, temp_name = tempfile.mkstemp(prefix=f".{output.name}.", dir=output.parent)
         temporary = Path(temp_name)
         try:
-            os.chmod(fd, 0o600)
+            # os.chmod по fd — POSIX-only; на Windows TypeError. Там mkstemp
+            # и так создаёт файл с ACL только для текущего пользователя.
+            if os.name != "nt":
+                os.chmod(fd, 0o600)
             stream = os.fdopen(fd, "wb")
             fd = -1
             with stream:

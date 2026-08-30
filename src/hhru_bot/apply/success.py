@@ -47,6 +47,10 @@ APPLY_SUCCESS_MARKER = "[data-qa='vacancy-response-sent-message']"
 
 # Цепочка success-маркеров по убыванию приоритета. first_locator перебирает
 # их по порядку — первый присутствующий подтверждает успех.
+# vacancy-response-link-top — кнопка ОТКЛИКНУТЬСЯ на странице вакансии
+# (vacancy_page.VACANCY_APPLY_BUTTON), не тост «отклик отправлен». Её нельзя
+# класть сюда: иначе wait_success_confirmation мгновенно True, а в
+# /applicant/negotiations пусто (живой Telegram-отклик 2026-08-30).
 APPLY_SUCCESS_MARKERS = (
     APPLY_SUCCESS_MARKER,
     "[data-qa='vacancy-response-success']",
@@ -55,7 +59,6 @@ APPLY_SUCCESS_MARKERS = (
     # dumps).  The old selectors above belong to the legacy popup and remain
     # as compatibility fallbacks.
     "[data-qa='responded-success-attach-cover-letter']",
-    "[data-qa='vacancy-response-link-top']",
 )
 
 # Текстовые признаки отправленного отклика. Регистронезависимый regex (#7):
@@ -70,8 +73,12 @@ def _signal_marker(page: Page) -> bool:
 
 
 def _signal_text(page: Page) -> bool:
-    """Сигнал 2: есть ли на странице текст-признак отправленного отклика."""
-    return page.get_by_text(APPLY_SUCCESS_TEXT_RE).count() > 0
+    """Сигнал 2: есть ли на странице текст-признак отправленного отклика.
+
+    Только видимый текст: dormant-шаблон со скрытой фразой «отклик отправлен»
+    не должен давать локальный false-positive.
+    """
+    return page.get_by_text(APPLY_SUCCESS_TEXT_RE).filter(visible=True).count() > 0
 
 
 def _any_positive_signal(page: Page) -> str | None:

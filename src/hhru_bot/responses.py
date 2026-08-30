@@ -75,12 +75,12 @@ class ResponseStatus:
     RESPONSE = "response"
     DISCARD = "discard"
     READ = "read"
+    UNSEEN = "unseen"
     UNKNOWN = "unknown"
 
 
 # Карта: подстрока текста бейджа (нижний регистр) → ключ статуса. Порядок важен:
-# более специфичные («приглашени») раньше общих («прочитан»). Синонимы covers
-# реальные формулировки hh.ru в шапке карточки переписки.
+# более специфичные («не просмотр») раньше общих («просмотрен»).
 _STATUS_MAP: list[tuple[str, str]] = [
     ("приглашени", ResponseStatus.INVITATION),  # Приглашение / Приглашен(а)
     ("собеседован", ResponseStatus.INVITATION),
@@ -91,6 +91,8 @@ _STATUS_MAP: list[tuple[str, str]] = [
     ("ответил", ResponseStatus.RESPONSE),
     ("ответ от", ResponseStatus.RESPONSE),
     ("непрочитан", ResponseStatus.RESPONSE),  # есть непрочитанное — значит ответили
+    ("не просмотр", ResponseStatus.UNSEEN),  # Не просмотрено — раньше ловилось как read
+    ("непросмотр", ResponseStatus.UNSEEN),
     ("прочитан", ResponseStatus.READ),  # Прочитано / прочитан(а)
     ("просмотрен", ResponseStatus.READ),
 ]
@@ -106,7 +108,7 @@ def normalize_status(text: str | None) -> str:
     """
     if not text:
         return ResponseStatus.READ
-    lower = text.strip().lower()
+    lower = " ".join(text.split()).casefold()
     if not lower:
         return ResponseStatus.READ
     for needle, key in _STATUS_MAP:
@@ -147,6 +149,7 @@ class ResponseItem:
     raw_status: str = ""
     topic_ambiguous: bool = False
     resume_id: str | None = None
+    title: str = ""
 
 
 def _extract_vacancy_id(href: str) -> str | None:
@@ -284,6 +287,13 @@ def parse_response_card(item) -> ResponseItem | None:
     employer = _optional_text(item, ns.NEGOTIATION_EMPLOYER, ns.LEGACY_NEGOTIATION_EMPLOYER)
     date = _optional_text(item, ns.NEGOTIATION_DATE, ns.LEGACY_NEGOTIATION_DATE)
 
+    title = ""
+    if link.count():
+        try:
+            title = " ".join((link.inner_text() or "").split())
+        except Exception:
+            title = ""
+
     chat_link = _first_locator(item, ns.NEGOTIATION_CHAT_LINK, ns.LEGACY_NEGOTIATION_CHAT_LINK)
     chat_href = chat_link.get_attribute("href") or "" if chat_link.count() else ""
     # chat_url — на страницу чата; keep_query=True: topic определяет конкретную
@@ -305,11 +315,16 @@ def parse_response_card(item) -> ResponseItem | None:
         topic=topic,
         date=date,
         raw_status=raw_status,
+        title=title,
     )
 
 
 def fetch_responses(
-    page: Page, max_pages: int = 5, *, strict_empty: bool = False
+    page: Page,
+    max_pages: int = 5,
+    *,
+    strict_empty: bool = False,
+    remindable_out: list | None = None,
 ) -> list[ResponseItem]:
     """Собирает ответы работодателей с /applicant/negotiations.
 
@@ -414,14 +429,25 @@ def fetch_responses(
         # page's already-resolved results and risk assigning them this
         # page's SSR topics.
         try:
-            from .negotiations_probe import chat_url, parse_initial_state, topic_refs
+            from .negotiations_probe import (
+                chat_url,
+                parse_initial_state,
+                remindable_topic_refs,
+                topic_refs,
+            )
 
             if not hasattr(page, "content"):
                 raise ValueError("page.content unavailable")
-            refs = topic_refs(page.content())
+            html = page.content()
+            refs = topic_refs(html)
+            if remindable_out is not None:
+                try:
+                    remindable_out.extend(remindable_topic_refs(html))
+                except ValueError as exc:
+                    logger.warning("SSR remindable unavailable: %s", exc)
             if strict_empty:
                 raw_topics = (
-                    parse_initial_state(page.content())
+                    parse_initial_state(html)
                     .get("applicantNegotiations", {})
                     .get("topicList")
                 )
@@ -525,6 +551,17 @@ def fetch_responses(
             raise ResponsesIndeterminate(
                 "sync достиг ограничения страниц, но negotiations продолжается"
             )
+
+    if remindable_out is not None:
+        seen: set[str] = set()
+        unique = []
+        for ref in remindable_out:
+            topic_id = getattr(ref, "topic_id", None)
+            if not topic_id or topic_id in seen:
+                continue
+            seen.add(topic_id)
+            unique.append(ref)
+        remindable_out[:] = unique
 
     logger.info("Собрано ответов работодателей всего: %d", len(results))
     return results

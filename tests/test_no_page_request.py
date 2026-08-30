@@ -16,7 +16,7 @@ def test_source_contains_no_direct_page_request_calls() -> None:
     violations: list[str] = []
     exceptions: set[str] = set()  # Explicit allow-list: currently none.
     for path in sorted(src.rglob("*.py")):
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
                 continue

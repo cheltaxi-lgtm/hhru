@@ -17,6 +17,30 @@ from hhru_bot.negotiations_chat import (
 pytestmark = pytest.mark.integration
 
 
+def test_chat_preview_payload_and_topic_order():
+    from types import SimpleNamespace
+
+    from hhru_bot.negotiations_chat import (
+        chat_preview_payload,
+        topics_for_chat_preview,
+    )
+
+    assert chat_preview_payload(None) is None
+    assert chat_preview_payload(ChatMessage("employer", "", "")) is None
+    payload = chat_preview_payload(ChatMessage("employer", "m9", "Здравствуйте"))
+    assert payload == {"id": "m9", "author": "employer", "text": "Здравствуйте"}
+
+    cards = [
+        SimpleNamespace(status="invitation", topic="1"),
+        SimpleNamespace(status="response", topic="2"),
+        SimpleNamespace(status="read", topic="3"),
+        SimpleNamespace(status="response", topic="2"),
+        SimpleNamespace(status="invitation", topic="4"),
+    ]
+    assert topics_for_chat_preview(cards, limit=3) == ["2", "1", "4"]
+    assert topics_for_chat_preview(cards, limit=1) == ["2"]
+
+
 def test_needs_reply_when_last_message_is_from_employer():
     decision = needs_reply(ChatMessage("employer", "message-1"))
     assert decision.should_reply is True

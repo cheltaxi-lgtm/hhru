@@ -14,6 +14,16 @@ def register(subparsers) -> None:
         type=Path,
         help="Файл с одноразовым кодом; без него код читается из stdin",
     )
+    p.add_argument(
+        "--captcha-file",
+        type=Path,
+        help="Файл с ответом на текстовую капчу; без него капча читается из stdin",
+    )
+    p.add_argument(
+        "--captcha-image",
+        type=Path,
+        help="Куда сохранить картинку капчи для ручного ввода",
+    )
     p.set_defaults(func=run)
 
 
@@ -22,5 +32,11 @@ def run(args: argparse.Namespace) -> None:
     from ..config import load_config_or_exit
 
     config = load_config_or_exit(args.config)
-    login_with_code(config, args.login, code_file=args.code_file)
+    login_with_code(
+        config,
+        args.login,
+        code_file=args.code_file,
+        captcha_file=args.captcha_file,
+        captcha_image=args.captcha_image,
+    )
     print("[OK] Сессия сохранена")

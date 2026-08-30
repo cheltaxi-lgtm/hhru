@@ -25,13 +25,16 @@ class BrowserLaunchError(RuntimeError):
     """Actionable browser-start failure for the CLI/agent boundary."""
 
 
-def launch_browser(playwright, *, headless: bool) -> Browser:
+def launch_browser(playwright, *, headless: bool, channel: str | None = None) -> Browser:
     """Launch Chromium and classify macOS sandbox failures for the CLI."""
+    launch_kwargs: dict = {
+        "headless": headless,
+        "args": ["--disable-blink-features=AutomationControlled"],
+    }
+    if channel:
+        launch_kwargs["channel"] = channel
     try:
-        return playwright.chromium.launch(
-            headless=headless,
-            args=["--disable-blink-features=AutomationControlled"],
-        )
+        return playwright.chromium.launch(**launch_kwargs)
     except PlaywrightError as exc:
         details = str(exc)
         sandbox_markers = (
@@ -248,6 +251,7 @@ def launch_context(
     storage_state_file: Path | None,
     headless: bool = False,
     user_agent: str | None = None,
+    channel: str | None = None,
 ):
     """Контекст браузера с сохранённой сессией.
 
@@ -259,7 +263,7 @@ def launch_context(
         # --disable-blink-features=AutomationControlled убирает главный флаг, по
         # которому hh.ru (DDoS-Guard) держит кнопку входа disabled в Playwright.
         # Приём из YAMAKAYAMACO/hh-autoresponder (рабочий против hh.ru).
-        browser: Browser = launch_browser(p, headless=headless)
+        browser: Browser = launch_browser(p, headless=headless, channel=channel)
         context_kwargs: dict = {
             "viewport": {"width": 1366, "height": 900},
             "locale": "ru-RU",

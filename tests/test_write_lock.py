@@ -58,11 +58,16 @@ def test_lock_covers_all_hhru_write_commands():
         "edit-languages",
         "settings",
         "reject",
+        "remind",
         "review",
         "config",
         "backup",
         "restore",
         "blacklist",
+        "respond",
+        "login",
+        "login-code",
+        "import-cookies",
     }
 
 

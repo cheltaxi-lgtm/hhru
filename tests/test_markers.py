@@ -26,7 +26,7 @@ def test_every_test_file_has_exactly_one_category_marker() -> None:
     test_files = sorted((*tests_dir.rglob("test_*.py"), tests_dir / "packaging_smoke.py"))
     missing_or_multiple: list[str] = []
     for path in test_files:
-        tree = ast.parse(path.read_text(), filename=str(path))
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         markers = []
         for node in tree.body:
             if (

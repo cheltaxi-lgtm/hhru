@@ -33,8 +33,10 @@ def check_already_responded(page: Page, vacancy: VacancyCard) -> str | None:
     Дедупликация идёт через history.has_applied() в filter_candidates() (см.
     search.py) ещё до попадания в apply_to_vacancy. Эта проверка дополнительно
     распознаёт подтверждённые live-DOM маркеры, чтобы отсутствие обычной кнопки
-    не выглядело ошибкой селектора. Ошибки Playwright намеренно не скрываются:
-    это fail-closed граница для неизвестного состояния страницы.
+    не выглядело ошибкой селектора. Ошибка опроса маркеров трактуется как
+    «маркеров нет» (return None): ложный already-responded навсегда исключил бы
+    валидную вакансию через persistent skip, а реальный существующий отклик
+    дальше по пайплайну перехватят submit-гварды и внешний верификатор.
 
     #226 cycle-review round 3: проверяем ВИДИМОСТЬ маркера (state="visible"),
     а не только присутствие в DOM (count() > 0). Persisted skip (ALREADY_APPLIED)

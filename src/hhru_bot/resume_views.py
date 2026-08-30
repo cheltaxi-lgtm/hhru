@@ -22,6 +22,14 @@ def has_next_page(page, page_num: int) -> bool:
     return False
 
 
+HISTORY_PAGE = "https://hh.ru/applicant/resumeview/history"
+
+
+def history_page_url(numeric_resume_id: str | int, page_num: int = 0) -> str:
+    """Live hh.ru history is `resumeId=<numeric>`, not the public hash."""
+    return f"{HISTORY_PAGE}?resumeId={numeric_resume_id}&page={int(page_num)}"
+
+
 def _find_history(value):
     if isinstance(value, dict):
         for key, child in value.items():
@@ -36,6 +44,80 @@ def _find_history(value):
             if found is not None:
                 return found
     return None
+
+
+def _entry_area(entry: dict) -> str | None:
+    for name in (
+        "areaName",
+        "cityName",
+        "city",
+        "area",
+        "location",
+        "town",
+        "employerArea",
+        "employerCity",
+    ):
+        value = entry.get(name)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:120]
+        if isinstance(value, dict):
+            label = value.get("name") or value.get("city") or value.get("text")
+            if label:
+                return str(label).strip()[:120]
+    employer = entry.get("employer")
+    if isinstance(employer, dict):
+        nested = _entry_area({k: v for k, v in employer.items() if k != "employer"})
+        if nested:
+            return nested
+    return None
+
+
+def _vacancy_item(raw: object) -> dict | None:
+    if isinstance(raw, str) and raw.strip():
+        return {"title": raw.strip()[:200], "url": None, "area": None, "id": None}
+    if not isinstance(raw, dict):
+        return None
+    title = _value(raw, "name", "title", "vacancyName")
+    if not title:
+        return None
+    vid = _value(raw, "id", "vacancyId", "vacancy_id")
+    url = _value(raw, "url", "alternateUrl", "alternate_url", "link")
+    if url is None and vid:
+        url = f"https://hh.ru/vacancy/{vid}"
+    area = None
+    area_raw = raw.get("area")
+    if isinstance(area_raw, dict):
+        area = str(area_raw.get("name") or "").strip() or None
+    elif isinstance(area_raw, str) and area_raw.strip():
+        area = area_raw.strip()
+    return {
+        "title": str(title)[:200],
+        "url": None if url is None else str(url),
+        "area": area,
+        "id": None if vid is None else str(vid),
+    }
+
+
+def _entry_vacancies(entry: dict) -> list[dict]:
+    raw = (
+        entry.get("vacancies")
+        or entry.get("vacancyList")
+        or entry.get("openVacancies")
+        or entry.get("employerVacancies")
+        or entry.get("vacancy")
+    )
+    if isinstance(raw, dict):
+        raw = raw.get("items") or raw.get("list") or [raw]
+    if not isinstance(raw, list):
+        return []
+    out: list[dict] = []
+    for item in raw:
+        parsed = _vacancy_item(item)
+        if parsed:
+            out.append(parsed)
+        if len(out) >= 8:
+            break
+    return out
 
 
 def _value(entry: dict, *names):
@@ -65,6 +147,115 @@ def _canonicalize_viewed_at(raw: str) -> str:
     return parsed.isoformat()
 
 
+def _ms_to_iso(ms: int) -> str:
+    return datetime.fromtimestamp(ms / 1000, tz=UTC).isoformat()
+
+
+def _calendar_iso(year: int, month: int, day: int) -> str:
+    return datetime(year, month, day, tzinfo=UTC).isoformat()
+
+
+def _company_entries(company: dict, year: int, month: int, day: int) -> list[dict]:
+    if not isinstance(company, dict):
+        raise ValueError("SSR history company invalid")
+    employer_id = company.get("id")
+    name = company.get("name")
+    stamps = company.get("views")
+    if stamps is None:
+        stamps = []
+    if not isinstance(stamps, list):
+        raise ValueError("SSR history company views invalid")
+    if stamps:
+        rows: list[dict] = []
+        for raw_ms in stamps:
+            try:
+                ms = int(raw_ms)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("SSR history view timestamp invalid") from exc
+            source_id = f"{employer_id}:{ms}" if employer_id is not None else f"t:{ms}"
+            rows.append(
+                {
+                    "date": _ms_to_iso(ms),
+                    "employerId": employer_id,
+                    "employerName": name,
+                    "id": source_id,
+                }
+            )
+        return rows
+    if employer_id is None:
+        raise ValueError("SSR view has no stable identity (no source_id or employer_id)")
+    return [
+        {
+            "date": _calendar_iso(year, month, day),
+            "employerId": employer_id,
+            "employerName": name,
+            "id": f"{employer_id}:{year}{month:02d}{day:02d}",
+        }
+    ]
+
+
+def _flatten_year_history(raw: dict) -> list[dict]:
+    years = raw.get("years")
+    if not isinstance(years, list):
+        raise ValueError("SSR applicantResumeViewHistory.historyViews.years недоступен")
+    entries: list[dict] = []
+    for year_block in years:
+        if not isinstance(year_block, dict):
+            raise ValueError("SSR history year block invalid")
+        try:
+            year = int(year_block["year"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("SSR history year missing") from exc
+        days = year_block.get("days") or []
+        if not isinstance(days, list):
+            raise ValueError("SSR history days invalid")
+        for day_block in days:
+            if not isinstance(day_block, dict):
+                raise ValueError("SSR history day invalid")
+            try:
+                month = int(day_block["month"])
+                day = int(day_block["day"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError("SSR history day/month missing") from exc
+            companies = day_block.get("companies") or []
+            if not isinstance(companies, list):
+                raise ValueError("SSR history companies invalid")
+            for company in companies:
+                entries.extend(_company_entries(company, year, month, day))
+    return entries
+
+
+def _history_view_entries(history: dict) -> list[dict]:
+    raw = history.get("historyViews")
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        return _flatten_year_history(raw)
+    raise ValueError("SSR applicantResumeViewHistory.historyViews недоступен")
+
+
+def ssr_history_has_more(html: str) -> bool | None:
+    try:
+        state = parse_initial_state(html)
+    except (ValueError, TypeError):
+        return None
+    history = _find_history(state)
+    if not isinstance(history, dict):
+        return None
+    paging = history.get("paging")
+    if not isinstance(paging, dict):
+        return None
+    try:
+        items = int(paging.get("itemsNumber"))
+        page = int(paging.get("currentPage") or 0)
+        per = int(paging.get("itemsOnPage") or 0)
+    except (TypeError, ValueError):
+        return None
+    if per <= 0:
+        return None
+    return (page + 1) * per < items
+
+
 def parse_resume_view_history(
     html: str,
     resume_id: str,
@@ -89,11 +280,12 @@ def parse_resume_view_history(
     """
     state = parse_initial_state(html)
     history = _find_history(state)
-    if history is None or not isinstance(history.get("historyViews"), list):
+    if history is None:
         raise ValueError("SSR applicantResumeViewHistory.historyViews недоступен")
+    entries = _history_view_entries(history)
 
     result = []
-    for entry in history["historyViews"]:
+    for entry in entries:
         if not isinstance(entry, dict):
             raise ValueError("SSR history contains an invalid view entry")
         viewed_at = _value(entry, "date", "viewedAt", "viewDate", "createdAt")
@@ -133,6 +325,8 @@ def parse_resume_view_history(
                 # leaks internal IDs.
                 "source_id": None if source_id is None else str(source_id),
                 "viewed_at": viewed_at,
+                "area": _entry_area(entry),
+                "vacancies": _entry_vacancies(entry),
             }
         )
         if limit is not None and len(result) >= limit:

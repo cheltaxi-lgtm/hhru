@@ -330,7 +330,8 @@ def _finalize_blocker(ctx: ApplyContext, blocker: PostClickBlocker) -> ApplyResu
         return _keep_stop(
             ctx.ok(
                 f"{blocker.reason}; внешняя проверка: отклик присутствует "
-                f"в /applicant/negotiations ({verified.detail})"
+                f"в /applicant/negotiations ({verified.detail})",
+                outcome_code="reconciled_success",
             )
         )
     if verified.indeterminate:
@@ -439,10 +440,17 @@ def _finalize_post_click_failure(ctx: ApplyContext, reason: str) -> ApplyResult:
 
 def _run(ctx: ApplyContext) -> ApplyResult:
     logger.info("Открываю вакансию: %s (%s)", ctx.vacancy.title, ctx.vacancy.url)
-    goto_hh(ctx.page, ctx.vacancy.url)
+    try:
+        goto_hh(ctx.page, ctx.vacancy.url)
+        # Reuse the already-open vacancy page; no second navigation is needed.
+        ctx.vacancy = refresh_card(ctx.page, ctx.vacancy, cache=ctx.vacancy_body_cache)
+    except PlaywrightError as exc:
+        # До клика по кнопке отклика — чистый fail (acted=False). Одна битая
+        # вакансия не должна обрывать весь батч-прогон трейсбеком — тот же
+        # класс защиты, что #163/#176 завели для шагов после навигации.
+        logger.warning("[FAIL] %s — не удалось открыть вакансию (%s)", ctx.vacancy.title, exc)
+        return ctx.fail(f"не удалось открыть страницу вакансии: {exc}")
     _halt_if_antibot(ctx)
-    # Reuse the already-open vacancy page; no second navigation is needed.
-    ctx.vacancy = refresh_card(ctx.page, ctx.vacancy, cache=ctx.vacancy_body_cache)
     if has_login_form(ctx.page):
         return ctx.fail("Сессия недействительна: страница содержит форму входа. Выполните login.")
     ctx.probe("vacancy_loaded", url=ctx.vacancy.url)
@@ -674,7 +682,14 @@ def _run(ctx: ApplyContext) -> ApplyResult:
         )
     except PostSubmitLimitExceeded as exc:
         ctx.acted = True
-        return ctx.stop(str(exc))
+        # Модалка лимита показана ПОСЛЕ submit-клика — «серая зона» #207:
+        # hh.ru мог принять отклик и одновременно отрисовать лимит. Сверяемся
+        # с /applicant/negotiations, но stop_run сохраняем при любом вердикте
+        # (лимит — свойство аккаунта; паттерн _keep_stop из #342).
+        result = _finalize_post_click_failure(ctx, str(exc))
+        if not result.stop_run:
+            result = replace(result, stop_run=True)
+        return result
     except PlaywrightError as exc:
         logger.warning(
             "[FAIL] %s — ошибка Playwright при заполнении формы (%s)", ctx.vacancy.title, exc
@@ -703,6 +718,12 @@ def _run(ctx: ApplyContext) -> ApplyResult:
             return _finalize_post_click_failure(
                 ctx, "не удалось подтвердить успешную отправку отклика"
             )
+        if ctx.verifier is not None:
+            # Кнопка отклика на странице вакансии (vacancy-response-link-top)
+            # не должна считаться успехом. Даже «настоящий» UI-тост сверяем
+            # со списком /applicant/negotiations — иначе Telegram получает
+            # «отправил», а в Отправленных пусто.
+            return _finalize_post_click_failure(ctx, "локальный success-сигнал")
     except PlaywrightError as exc:
         # #177 round 3 (Codex): исключение — НЕ то же самое, что False выше.
         # Мы не смогли даже проверить (browser/page упал посреди опроса),

@@ -183,6 +183,67 @@ def read_last_message(page: Page, chat_id: str) -> ChatMessage | None:
     )
 
 
+CHAT_PREVIEW_STATUSES = frozenset({"response", "invitation"})
+CHAT_PREVIEW_LIMIT = 8
+
+
+def chat_preview_payload(message: ChatMessage | None) -> dict[str, str] | None:
+    """Small JSON blob for Koplife Jobs Telegram notifications."""
+    if message is None:
+        return None
+    text = (message.text or "").strip()
+    marker = (message.inbound_marker or "").strip()
+    author = (message.author or "").strip()
+    if not text and not marker:
+        return None
+    return {"id": marker, "author": author, "text": text}
+
+
+def topics_for_chat_preview(
+    cards: Sequence[object], *, limit: int = CHAT_PREVIEW_LIMIT
+) -> list[str]:
+    """Pick topics whose last chat message is worth reading this pass.
+
+    ``response`` first (employer wrote), then ``invitation``. Cap keeps one
+    Playwright session from walking every historical chat on a busy account.
+    """
+    if limit < 1:
+        return []
+    preferred: list[str] = []
+    rest: list[str] = []
+    seen: set[str] = set()
+    for card in cards:
+        status = str(getattr(card, "status", "") or "").strip()
+        topic = str(getattr(card, "topic", "") or "").strip()
+        if status not in CHAT_PREVIEW_STATUSES or not topic or topic in seen:
+            continue
+        seen.add(topic)
+        if status == "response":
+            preferred.append(topic)
+        else:
+            rest.append(topic)
+    return (preferred + rest)[:limit]
+
+
+def read_chat_previews(
+    page: Page,
+    topic_to_chat_id: Mapping[str, str],
+    topics: Sequence[str],
+) -> dict[str, dict[str, str]]:
+    """Read last messages for the given topics. GET navigation only."""
+    out: dict[str, dict[str, str]] = {}
+    for topic in topics:
+        key = str(topic)
+        chat_id = topic_to_chat_id.get(key)
+        if not chat_id:
+            logger.warning("chat preview: topic %s not found in SSR chat mapping", key)
+            continue
+        payload = chat_preview_payload(read_last_message(page, str(chat_id)))
+        if payload:
+            out[key] = payload
+    return out
+
+
 def read_chat(page: Page, topic: str, topic_to_chat_id: Mapping[str, str]) -> ChatMessage | None:
     """Resolve a topic from the #107 SSR mapping and read its latest message.
 

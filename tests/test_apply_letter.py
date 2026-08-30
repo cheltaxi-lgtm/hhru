@@ -78,6 +78,14 @@ def test_template_provider_works_without_resume_profile():
     assert outcome.variant == "template"
 
 
+def test_fixed_letter_keeps_braces():
+    from hhru_bot.apply.letter import FixedCoverLetterProvider
+
+    text = "Был опыт с {не плейсхолдер} и trade-in."
+    provider = FixedCoverLetterProvider(text)
+    assert provider.render(_card("Директор", "Автомир")).text == text
+
+
 def test_template_provider_logs_letter_match_score(caplog):
     provider = TemplateCoverLetterProvider("Python и Django")
 

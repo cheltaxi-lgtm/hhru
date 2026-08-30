@@ -15,6 +15,7 @@ CLAUDE.md: history.db пользователь меняет только чер�
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import pytest
@@ -256,6 +257,10 @@ def test_query_output_cannot_overwrite_history_db(tmp_path):
     assert db.read_bytes()[:15] == b"SQLite format 3"
 
 
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="symlink_to требует SeCreateSymbolicLinkPrivilege на Windows",
+)
 def test_query_output_cannot_overwrite_history_db_via_symlink(tmp_path):
     """Тот же inode через symlink тоже запрещён (alias на history.db)."""
     db = _seed_history(tmp_path)

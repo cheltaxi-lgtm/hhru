@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import json
 import logging
 import os
 import pkgutil
@@ -65,9 +66,12 @@ BROWSER_COMMANDS = frozenset(
         "professional-roles",
         "publish-resume",
         "refresh-token",
+        "remind",
         "rename-resume",
         "reply-employers",
+        "respond",
         "responses",
+        "resumes-dump",
         "resume-position",
         "resume-sections",
         "resume-visibility",
@@ -89,6 +93,7 @@ WRITE_COMMANDS = frozenset(
         "edit-experience",
         "about",
         "reply-employers",
+        "respond",
         "edit-education",
         "clear-negotiations",
         "delete-resume",
@@ -97,9 +102,16 @@ WRITE_COMMANDS = frozenset(
         "resume-sections",
         "edit-skills",
         "edit-languages",
+        # Сессионно-пишущие команды: перезаписывают storage_state, который
+        # читают respond/apply/run. Без общего лока конкурентный login во время
+        # отклика давал рваную/протухшую сессию.
+        "login",
+        "login-code",
+        "import-cookies",
         "settings",
         "config",
         "reject",
+        "remind",
         "backup",
         "restore",
         "review",
@@ -197,7 +209,26 @@ def main(argv: list[str] | None = None) -> None:
             if owner
             else ""
         )
-        print(f"[FAIL] другой процесс уже выполняет WRITE-действие{detail}")
+        message = f"другой процесс уже выполняет WRITE-действие{detail}"
+        if getattr(args, "json", False):
+            # Машинные клиенты (Telegram-бот) всегда получают JSON-контракт,
+            # даже когда команда не дошла до своего run().
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "success": False,
+                        "error": message,
+                        "reason": message,
+                        "error_code": "lock_busy",
+                        "busy": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+        else:
+            print(f"[FAIL] {message}")
         sys.exit(1)
 
 
@@ -334,7 +365,22 @@ def _execute(args: argparse.Namespace) -> None:
     except AntiBotChallengeDetected as exc:
         # #344: terminal apply/run state.  Do not render a traceback or continue
         # with another vacancy/resume (or bump in the combined ``run`` command).
-        print(f"[FAIL] {exc}", file=sys.stderr)
+        if getattr(args, "json", False):
+            print(
+                json.dumps(
+                    {
+                        "ok": False,
+                        "success": False,
+                        "error": str(exc)[:400],
+                        "reason": str(exc)[:400],
+                        "error_code": "antibot",
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+        else:
+            print(f"[FAIL] {exc}", file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
         print("\nПрервано пользователем.")

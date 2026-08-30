@@ -24,9 +24,16 @@ def _state(tmp_path: Path) -> tuple[Path, Path]:
         "account:\n  storage_state_file: storage_state/session.json\n", encoding="utf-8"
     )
     config.parent.joinpath("storage_state/session.json").write_text("secret", encoding="utf-8")
-    with sqlite3.connect(history) as conn:
+    # `with sqlite3.connect()` НЕ закрывает соединение (только commit) — на
+    # Windows протухший хендл блокирует os.replace в restore_backup до тех
+    # пор, пока циклический GC не доберётся (флаки в полном прогоне).
+    conn = sqlite3.connect(history)
+    try:
         conn.execute("create table sample (value text)")
         conn.execute("insert into sample values ('old')")
+        conn.commit()
+    finally:
+        conn.close()
     return config, history
 
 
@@ -97,9 +104,13 @@ def test_restore_backs_up_surviving_custom_session_when_config_is_missing(tmp_pa
     config.write_text(
         "account:\n  storage_state_file: external/custom-session.json\n", encoding="utf-8"
     )
-    with sqlite3.connect(history) as conn:
+    conn = sqlite3.connect(history)
+    try:
         conn.execute("create table sample (value text)")
         conn.execute("insert into sample values ('old')")
+        conn.commit()
+    finally:
+        conn.close()
     archive = tmp_path / "state.tar.gz"
     create_backup(config, history, archive)
 
