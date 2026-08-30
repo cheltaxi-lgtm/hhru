@@ -412,9 +412,7 @@ def test_bump_no_limit():
 
 def test_bump_resume_can_repeat():
     parser = _build()
-    args = parser.parse_args(
-        ["bump", "--resume", "aaa111", "--resume", "bbb222"]
-    )
+    args = parser.parse_args(["bump", "--resume", "aaa111", "--resume", "bbb222"])
     assert args.resume == ["aaa111", "bbb222"]
 
 

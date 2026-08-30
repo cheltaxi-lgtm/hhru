@@ -21,7 +21,15 @@ def test_remind_cli_flags():
     assert args.force is True
     assert args.json is True
     args = parser.parse_args(
-        ["remind", "--topic", "77", "--force", "--json", "--chat-url", "https://chatik.hh.ru/chat/1"]
+        [
+            "remind",
+            "--topic",
+            "77",
+            "--force",
+            "--json",
+            "--chat-url",
+            "https://chatik.hh.ru/chat/1",
+        ]
     )
     assert args.chat_url == "https://chatik.hh.ru/chat/1"
 
@@ -37,9 +45,7 @@ def test_candidate_remind_urls_always_include_topic():
 
 
 def test_chatik_embed_url_keeps_existing_query():
-    url = remind_cmd.chatik_embed_url(
-        "https://chatik.hh.ru/chat/9?dest=iframe&theme=hh-night"
-    )
+    url = remind_cmd.chatik_embed_url("https://chatik.hh.ru/chat/9?dest=iframe&theme=hh-night")
     assert "dest=iframe" in url
     assert "theme=hh-night" in url
     assert url.count("dest=") == 1
@@ -175,9 +181,7 @@ def test_click_remind_opens_overflow_menu_on_viewed_chat():
             blob = getattr(name, "pattern", str(name or ""))
             if role == "button" and "напомн" in blob:
                 return self.remind
-            if role == "button" and any(
-                token in blob for token in ("ещё", "меню", "действи")
-            ):
+            if role == "button" and any(token in blob for token in ("ещё", "меню", "действи")):
                 return self.menu
             return _Control(0)
 

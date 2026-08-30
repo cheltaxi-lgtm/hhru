@@ -42,7 +42,9 @@ def test_codex_plugin_manifest_exposes_all_skills():
 
 def test_codex_repo_marketplace_points_to_a_release_not_floating_main():
     root = _repo_root()
-    marketplace = json.loads((root / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8"))
+    marketplace = json.loads(
+        (root / ".agents" / "plugins" / "marketplace.json").read_text(encoding="utf-8")
+    )
     plugin = marketplace["plugins"][0]
     version = _project_version(root)
 

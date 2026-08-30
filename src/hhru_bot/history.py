@@ -825,7 +825,10 @@ class History:
 
     @contextmanager
     def _connect(self):
-        conn = sqlite3.connect(self.db_path)
+        # timeout — busy-timeout для конкурирующих writer'ов (respond из
+        # Telegram-бота параллельно с CLI run). Без него короткое окно
+        # блокировки давало мгновенный «database is locked».
+        conn = sqlite3.connect(self.db_path, timeout=10)
         conn.row_factory = sqlite3.Row
         try:
             yield conn

@@ -554,8 +554,7 @@ def run(args: argparse.Namespace) -> CommandExitCode | None:
                     "ok": True,
                     "error": None,
                     "items": [
-                        _card_payload(card, remindable_ids, message_previews)
-                        for card in cards
+                        _card_payload(card, remindable_ids, message_previews) for card in cards
                     ],
                     "remindable": _remindable_payload(remindable_refs),
                 }

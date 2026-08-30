@@ -726,6 +726,13 @@ def _run(ctx: ApplyContext) -> ApplyResult:
             # со списком /applicant/negotiations — иначе Telegram получает
             # «отправил», а в Отправленных пусто.
             return _finalize_post_click_failure(ctx, "локальный success-сигнал")
+        # Fail-closed без верификатора: локальный UI-сигнал сам по себе
+        # недоверенный (маркеры вроде vacancy-response-link-top ловили ложные
+        # «успехи»). Продакшн-проводки (run/respond) всегда передают verifier;
+        # None — только юнит-тесты pipeline. uncertain, а не чистый fail:
+        # submit-клик был, отклик мог реально уйти.
+        ctx.uncertain = True
+        return ctx.fail("локальный success-сигнал без внешней проверки — исход не подтверждён")
     except PlaywrightError as exc:
         # #177 round 3 (Codex): исключение — НЕ то же самое, что False выше.
         # Мы не смогли даже проверить (browser/page упал посреди опроса),
@@ -741,9 +748,6 @@ def _run(ctx: ApplyContext) -> ApplyResult:
         return _finalize_post_click_failure(
             ctx, f"ошибка Playwright после отправки отклика ({exc}) — успех не подтверждён"
         )
-
-    logger.info("Отклик отправлен: %s", ctx.vacancy.title)
-    return ctx.ok("success")
 
 
 def _halt_if_antibot(ctx: ApplyContext) -> None:

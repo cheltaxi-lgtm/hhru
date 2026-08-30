@@ -43,7 +43,9 @@ class _Locator:
             if not self.page.show_credentials_on_wait:
                 self.page.stage = "credentials"
         elif self.kind == "submit":
-            if (self.page.need_captcha or self.page.need_click_captcha) and not self.page.captcha_ok:
+            if (
+                self.page.need_captcha or self.page.need_click_captcha
+            ) and not self.page.captcha_ok:
                 self.page.stage = "captcha"
             else:
                 self.page.stage = "code"
@@ -188,7 +190,11 @@ class _Page:
             return _Locator(self, count=0 if self.context and self.context._cookies else 1)
         if selector == "body":
             return _Locator(self)
-        if "recaptcha" in selector or "hcaptcha" in selector or selector in {".g-recaptcha", ".h-captcha"}:
+        if (
+            "recaptcha" in selector
+            or "hcaptcha" in selector
+            or selector in {".g-recaptcha", ".h-captcha"}
+        ):
             return _Locator(self, count=0)
         raise AssertionError(f"unexpected selector: {selector}")
 

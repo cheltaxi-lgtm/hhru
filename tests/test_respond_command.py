@@ -53,7 +53,11 @@ def test_respond_passes_resume_hash_not_numeric_verify_id(monkeypatch, tmp_path)
     )
 
     monkeypatch.setattr(respond_cmd, "resolve_resume", lambda *_a, **_k: resume)
-    monkeypatch.setattr(respond_cmd, "_prepare_apply_resume", lambda *_a, **_k: SimpleNamespace(verify_resume_id="277041349"))
+    monkeypatch.setattr(
+        respond_cmd,
+        "_prepare_apply_resume",
+        lambda *_a, **_k: SimpleNamespace(verify_resume_id="277041349"),
+    )
     monkeypatch.setattr("hhru_bot.config.load_config_or_exit", lambda _p: config)
     monkeypatch.setattr("hhru_bot.browser.launch_context", lambda *_a, **_k: _NullContext())
     monkeypatch.setattr("hhru_bot.apply.apply_to_vacancy", _fake_apply)
@@ -141,3 +145,45 @@ def test_respond_writes_apply_to_history(monkeypatch, tmp_path):
 
     history = History(str(history_path))
     assert history.has_applied(real_resume_id, "136143178") is True
+
+
+def test_respond_dedupes_before_browser(monkeypatch, tmp_path):
+    """has_applied pre-check: повторный respond на ту же вакансию выходит
+    skipped=already_applied ДО запуска браузера — без лишнего прогона hh.ru."""
+    real_resume_id = "1e5303d2ff10835fb60039ed1f633566493437"
+    resume = bare_resume(real_resume_id)
+
+    letter = tmp_path / "letter.txt"
+    letter.write_text("Добрый день. " * 8, encoding="utf-8")
+    config = SimpleNamespace(
+        storage_state_file=tmp_path / "state.json",
+        user_agent=None,
+        throttle=ThrottleConfig(min_delay_seconds=0, max_delay_seconds=0, daily_apply_limit=40),
+    )
+    monkeypatch.setattr(respond_cmd, "resolve_resume", lambda *_a, **_k: resume)
+    monkeypatch.setattr("hhru_bot.config.load_config_or_exit", lambda _p: config)
+
+    def _launch_forbidden(*_a, **_k):
+        raise AssertionError("browser must not launch when already applied")
+
+    monkeypatch.setattr("hhru_bot.browser.launch_context", _launch_forbidden)
+
+    history_path = tmp_path / "history.db"
+    from hhru_bot.history import History
+
+    history = History(str(history_path))
+    history.record_action(real_resume_id, "136143178", "apply", "success", "ok")
+
+    args = SimpleNamespace(
+        resume=real_resume_id,
+        vacancy_id="136143178",
+        vacancy_url=None,
+        letter_file=str(letter),
+        json=True,
+        headless=True,
+        config=None,
+        history=str(history_path),
+    )
+    # skipped=already_applied идёт через fail() → run() True (exit 1), как и
+    # LimitReached; машинный клиент различает по skip_reason, не по exit-коду.
+    assert respond_cmd.run(args) is True

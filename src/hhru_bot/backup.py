@@ -273,7 +273,10 @@ def restore_backup(
                 if source is None:
                     raise BackupError(f"Не удалось прочитать содержимое файла в архиве: {name!r}")
                 target.write_bytes(source.read())
-                os.chmod(target, 0o600)
+                if os.name != "nt":
+                    # NTFS не реализует Unix permission bits — chmod там бессмысленен
+                    # (и ведёт себя непредсказуемо); защита — унаследованный ACL.
+                    os.chmod(target, 0o600)
         desired_storage = None
         staged_config = staging / "config.yaml"
         if staged_config.exists():
@@ -342,7 +345,8 @@ def restore_backup(
             except sqlite3.DatabaseError as exc:
                 raise BackupError("Некорректный history.db в архиве") from exc
             checked_path.replace(staged_history)
-            os.chmod(staged_history, 0o600)
+            if os.name != "nt":
+                os.chmod(staged_history, 0o600)
         originals = Path(tmp) / "originals"
         replaced: list[Path] = []
         original_keys: dict[Path, Path] = {}

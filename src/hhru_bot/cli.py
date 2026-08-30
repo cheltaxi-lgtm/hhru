@@ -195,6 +195,29 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _emit_json_error(
+    args: argparse.Namespace, error: str, error_code: str, **extra: object
+) -> None:
+    """JSON-контракт ошибки для машинных клиентов (Telegram-бот).
+
+    Без него ветки вроде AccountError/KeyboardInterrupt печатали человеческий
+    текст, и бот получал пустой stdout — падал с «пустой ответ hhru».
+    """
+    payload = {
+        "ok": False,
+        "success": False,
+        "error": error[:400],
+        "reason": error[:400],
+        "error_code": error_code,
+        **extra,
+    }
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+
+def _wants_json(args: argparse.Namespace) -> bool:
+    return bool(getattr(args, "json", False))
+
+
 def main(argv: list[str] | None = None) -> None:
     raw_argv = sys.argv[1:] if argv is None else argv
     # A Windows console-script launcher cannot be replaced while it is the
@@ -211,7 +234,10 @@ def main(argv: list[str] | None = None) -> None:
     try:
         _resolve_paths(args)
     except AccountError as exc:
-        print(f"[FAIL] {exc}")
+        if _wants_json(args):
+            _emit_json_error(args, str(exc), "account_error")
+        else:
+            print(f"[FAIL] {exc}")
         sys.exit(1)
     if not _is_write_command(args):
         return _execute(args)
@@ -291,14 +317,17 @@ def _reject_sandboxed_browser_command(args: argparse.Namespace) -> None:
     """
     if not os.environ.get("CODEX_SANDBOX") or not _requires_browser(args):
         return
-    print(
-        "[ENVIRONMENT] CODEX_SANDBOX_BROWSER_REQUIRED: "
+    message = (
+        "CODEX_SANDBOX_BROWSER_REQUIRED: "
         f"команда '{args.command}' запускает Chromium и должна быть сразу "
         "запущена вне sandbox с системным разрешением "
         "(sandbox_permissions=require_escalated). Браузерное действие, "
-        "write-lock и durable run не начинались.",
-        file=sys.stderr,
+        "write-lock и durable run не начинались."
     )
+    if _wants_json(args):
+        _emit_json_error(args, message, "sandbox_browser_required")
+    else:
+        print(f"[ENVIRONMENT] {message}", file=sys.stderr)
     sys.exit(1)
 
 
@@ -402,7 +431,7 @@ def _execute(args: argparse.Namespace) -> None:
         args.command == "account" and getattr(args, "account_command", None) == "list"
     )
     if logging_enabled:
-        setup_logging(verbose=args.verbose)
+        setup_logging(verbose=args.verbose, json_mode=getattr(args, "json", False))
 
     try:
         failed = args.func(args)
@@ -418,7 +447,10 @@ def _execute(args: argparse.Namespace) -> None:
         if failed is True:
             sys.exit(1)
     except BrowserLaunchError as exc:
-        print(f"[ENVIRONMENT] {exc}", file=sys.stderr)
+        if _wants_json(args):
+            _emit_json_error(args, str(exc), "browser_launch_failed")
+        else:
+            print(f"[ENVIRONMENT] {exc}", file=sys.stderr)
         sys.exit(1)
     except PlaywrightError as exc:
         # #747: goto_hh (browser.py) пробрасывает PlaywrightTimeoutError/
@@ -479,7 +511,11 @@ def _execute(args: argparse.Namespace) -> None:
             print(f"[FAIL] {exc}", file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
-        print("\nПрервано пользователем.")
+        if _wants_json(args):
+            # Прерывание посреди apply — неизвестный исход: отклик мог уйти.
+            _emit_json_error(args, "Прервано пользователем", "interrupted", uncertain=True)
+        else:
+            print("\nПрервано пользователем.")
         sys.exit(130)
     except Exception:
         # #179: раньше необработанное исключение из args.func (напр. Playwright
@@ -497,6 +533,15 @@ def _execute(args: argparse.Namespace) -> None:
             # только в FileHandler напрямую, консоль получает traceback один раз
             # от самого Python (стандартное поведение необработанного исключения).
             _log_unhandled_to_file(args.command, "Необработанное исключение в команде '%s'")
+        if _wants_json(args):
+            # Машинный клиент ждёт JSON-строку в stdout; traceback ему бесполезен.
+            exc_type, exc_value, _ = sys.exc_info()
+            _emit_json_error(
+                args,
+                f"{exc_type.__name__}: {exc_value}" if exc_type else "unknown error",
+                "unhandled_exception",
+            )
+            sys.exit(1)
         raise
 
 
