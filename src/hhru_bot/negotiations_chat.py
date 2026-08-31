@@ -21,8 +21,6 @@ from .browser import goto_hh
 from .negotiations_probe import chat_url
 from .selector_groups.negotiations import (
     CHAT_MESSAGE_INPUT,
-    CHAT_MESSAGE_MY_MARKER,
-    CHAT_MESSAGE_OTHER_MARKER,
     CHAT_MESSAGE_SEND,
     CHAT_MESSAGE_TEXT,
 )
@@ -166,6 +164,54 @@ def _message_id(data_qa: str | None) -> str | None:
     return marker or None
 
 
+# hh.ru перешёл на CSS-modules: «моё» сообщение — класс message_my--<hash>
+# (точного message_my больше нет), а у входящих message_other исчез совсем —
+# сигнал на пузыре: chat-bubble_incoming--<hash> (работодатель),
+# chat-bubble_outgoing--<hash> (я), chat-bubble_bot--<hash> (робот-рекрутер
+# работодателя). Матчим по префиксу с границей «--», чтобы пережить обе
+# разметки; пузырь — предок текстового узла, поэтому обход вверх надёлен.
+_MESSAGE_AUTHOR_JS = """(el) => {
+    const hit = (node, prefixes) => {
+        for (const cls of String(node.className || '').split(/\\s+/)) {
+            for (const p of prefixes) {
+                if (cls === p || cls.startsWith(p + '--')) return true;
+            }
+        }
+        return false;
+    };
+    for (let node = el; node; node = node.parentElement) {
+        let author = null;
+        if (hit(node, ['message_my', 'chat-bubble_outgoing'])) author = 'me';
+        else if (hit(node, ['message_other', 'chat-bubble_incoming', 'chat-bubble_bot'])) {
+            author = 'employer';
+        }
+        if (author) {
+            const labelNode = node.querySelector(
+                '[data-qa*="author"], [class*="author"], [aria-label], [title]');
+            return [author, labelNode && (labelNode.getAttribute('aria-label')
+                || labelNode.getAttribute('title') || labelNode.textContent || '').trim()];
+        }
+    }
+    return [null, null];
+}"""
+
+_IS_OWN_MESSAGE_JS = """(el) => {
+    const hit = (node, prefixes) => {
+        for (const cls of String(node.className || '').split(/\\s+/)) {
+            for (const p of prefixes) {
+                if (cls === p || cls.startsWith(p + '--')) return true;
+            }
+        }
+        return false;
+    };
+    for (let node = el; node; node = node.parentElement) {
+        if (hit(node, ['message_my', 'chat-bubble_outgoing'])) return true;
+        if (hit(node, ['message_other', 'chat-bubble_incoming', 'chat-bubble_bot'])) return false;
+    }
+    return false;
+}"""
+
+
 def read_last_message(page: Page, chat_id: str) -> ChatMessage | None:
     """Read the latest message from the confirmed chat route, without writes."""
     goto_hh(page, chat_url(chat_id))
@@ -176,20 +222,7 @@ def read_last_message(page: Page, chat_id: str) -> ChatMessage | None:
     for index in range(messages.count()):
         item = messages.nth(index)
         item_marker = _message_id(item.get_attribute("data-qa"))
-        item_author, item_label = item.evaluate(
-            """(el, markers) => { for (let node = el; node; node = node.parentElement) {
-                const classes = String(node.className).split(/\\s+/);
-                const author = classes.includes(markers.own) ? 'me'
-                    : classes.includes(markers.other) ? 'employer' : null;
-                if (author) {
-                    const labelNode = node.querySelector(
-                        '[data-qa*="author"], [class*="author"], [aria-label], [title]');
-                    return [author, labelNode && (labelNode.getAttribute('aria-label')
-                        || labelNode.getAttribute('title') || labelNode.textContent || '').trim()];
-                }
-            } return [null, null]; }""",
-            {"own": CHAT_MESSAGE_MY_MARKER, "other": CHAT_MESSAGE_OTHER_MARKER},
-        )
+        item_author, item_label = item.evaluate(_MESSAGE_AUTHOR_JS)
         all_messages.append(
             ChatMessage(item_author, item_marker, item.inner_text().strip(), item_label)
         )
@@ -350,15 +383,7 @@ def read_employer_messages(page: Page, chat_id: str) -> list[str]:
     texts: list[str] = []
     for index in range(messages.count() - 1, -1, -1):
         message = messages.nth(index)
-        is_own = message.evaluate(
-            """(el, marker) => {
-                for (let node = el; node; node = node.parentElement) {
-                    if (String(node.className).split(/\\s+/).includes(marker)) return true;
-                }
-                return false;
-            }""",
-            CHAT_MESSAGE_MY_MARKER,
-        )
+        is_own = message.evaluate(_IS_OWN_MESSAGE_JS)
         if not is_own:
             text = message.inner_text().strip()
             if text:
@@ -406,7 +431,7 @@ def wait_reply_confirmation(page: Page, timeout_ms: int = 10_000, *, min_count: 
     сервером, невалидная форма, сетевой сбой после клика), а страница при этом
     останется без submit-ошибки. Единственный позитивный сигнал, который здесь
     доступен без непроверенного success-маркера — author последнего сообщения
-    в чате стал ``"me"`` (тот же ``CHAT_MESSAGE_MY_MARKER``, что и в
+    в чате стал ``"me"`` (тот же классификатор ``_IS_OWN_MESSAGE_JS``, что и в
     ``read_last_message``). Опрашиваем union «последнее сообщение наше» в цикле
     до таймаута — hh.ru может отрисовать новое сообщение в DOM асинхронно.
 
@@ -437,15 +462,7 @@ def wait_reply_confirmation(page: Page, timeout_ms: int = 10_000, *, min_count: 
         count = count_visible_messages(page)
         if count >= min_count:
             message = messages.nth(count - 1)
-            author = message.evaluate(
-                """(el, marker) => {
-                    for (let node = el; node; node = node.parentElement) {
-                        if (String(node.className).split(/\\s+/).includes(marker)) return true;
-                    }
-                    return false;
-                }""",
-                CHAT_MESSAGE_MY_MARKER,
-            )
+            author = message.evaluate(_IS_OWN_MESSAGE_JS)
             if author:
                 logger.debug("Отправка в чате подтверждена: последнее сообщение наше")
                 return True

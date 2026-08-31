@@ -1138,6 +1138,8 @@ def run_negotiations(args: argparse.Namespace) -> bool:
             print(items.first.evaluate("el => el.outerHTML")[:4000])
 
         if args.topic:
+            from .. import negotiations_chat
+
             ref = next((r for r in refs if r.topic_id == str(args.topic)), None)
             if ref is None:
                 print(f"[FAIL] topic не найден в SSR state: {args.topic}")
@@ -1149,19 +1151,12 @@ def run_negotiations(args: argparse.Namespace) -> bool:
             message_rows = []
             for i in range(messages.count()):
                 loc = messages.nth(i)
-                parent_class = loc.evaluate(
-                    "(el, marker) => { for (let n = el; n; n = n.parentElement) "
-                    "if (String(n.className).split(/\\s+/).includes(marker)) "
-                    "return n.className; return ''; }",
-                    negotiations.CHAT_MESSAGE_MY_MARKER,
-                )
+                is_own = loc.evaluate(negotiations_chat._IS_OWN_MESSAGE_JS)
                 message_rows.append(
                     [
                         str(i + 1),
                         loc.get_attribute("data-qa") or "-",
-                        "own"
-                        if negotiations.CHAT_MESSAGE_MY_MARKER in parent_class.split()
-                        else "other",
+                        "own" if is_own else "other",
                         loc.inner_text().replace("\n", " ")[:160],
                     ]
                 )

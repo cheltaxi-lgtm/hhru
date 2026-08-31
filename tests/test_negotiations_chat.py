@@ -5,7 +5,6 @@ import pytest
 from playwright.sync_api import Page
 
 from hhru_bot.negotiations_chat import (
-    CHAT_MESSAGE_MY_MARKER,
     ChatMessage,
     extract_external_test_link,
     is_robot_questionnaire,
@@ -218,7 +217,7 @@ def test_trailing_sentence_punctuation_is_not_part_of_url():
 # send_reply_current() only clicks the send button; it never confirms the
 # server actually accepted the message. wait_reply_confirmation() is the
 # positive-signal poll that closes that gap: it waits for the last chat
-# message to become "ours" (same CHAT_MESSAGE_MY_MARKER used by
+# message to become "ours" (same _IS_OWN_MESSAGE_JS classifier used by
 # read_last_message), mirroring apply/success.wait_success_confirmation's
 # positive-only, timeout-is-false-negative contract.
 
@@ -227,8 +226,7 @@ class _FakeMessage:
     def __init__(self, is_own: bool):
         self._is_own = is_own
 
-    def evaluate(self, _script, marker):
-        assert marker == CHAT_MESSAGE_MY_MARKER
+    def evaluate(self, _script, *_args):
         return self._is_own
 
 
