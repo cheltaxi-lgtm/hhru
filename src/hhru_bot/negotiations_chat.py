@@ -236,8 +236,11 @@ def read_last_message(page: Page, chat_id: str) -> ChatMessage | None:
     )
 
 
-CHAT_PREVIEW_STATUSES = frozenset({"response", "invitation"})
-CHAT_PREVIEW_LIMIT = 8
+# hh.ru часто оставляет чат в «Просмотрен» / «Не просмотрен», хотя
+# работодатель уже написал. Раньше такие треды не открывались — Koplife
+# не видел входящие. Лимит покрывает типичный активный inbox (~20 карточек).
+CHAT_PREVIEW_STATUSES = frozenset({"response", "invitation", "read", "unseen"})
+CHAT_PREVIEW_LIMIT = 24
 
 
 def chat_preview_payload(message: ChatMessage | None) -> dict[str, str] | None:
@@ -257,13 +260,15 @@ def topics_for_chat_preview(
 ) -> list[str]:
     """Pick topics whose last chat message is worth reading this pass.
 
-    ``response`` first (employer wrote), then ``invitation``. Cap keeps one
-    Playwright session from walking every historical chat on a busy account.
+    ``response`` first (badge says employer wrote), then ``invitation``,
+    then ``read``/``unseen`` — those badges still hide real chat replies.
+    Cap keeps one Playwright session from walking a huge archive.
     """
     if limit < 1:
         return []
-    preferred: list[str] = []
-    rest: list[str] = []
+    response: list[str] = []
+    invitation: list[str] = []
+    other: list[str] = []
     seen: set[str] = set()
     for card in cards:
         status = str(getattr(card, "status", "") or "").strip()
@@ -272,10 +277,12 @@ def topics_for_chat_preview(
             continue
         seen.add(topic)
         if status == "response":
-            preferred.append(topic)
+            response.append(topic)
+        elif status == "invitation":
+            invitation.append(topic)
         else:
-            rest.append(topic)
-    return (preferred + rest)[:limit]
+            other.append(topic)
+    return (response + invitation + other)[:limit]
 
 
 def read_chat_previews(

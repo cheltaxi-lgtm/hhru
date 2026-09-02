@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import stat
+import subprocess
 import tempfile
 from pathlib import Path
 
@@ -136,16 +137,37 @@ def secure_storage_state_parent(
     return destination
 
 
+def _harden_windows_acl(path: Path) -> None:
+    """NTFS analog of 0600: current user only, inheritance stripped."""
+    user = (os.environ.get("USERNAME") or "").strip()
+    if not user:
+        return
+    try:
+        subprocess.run(
+            ["icacls", str(path), "/inheritance:r", "/grant:r", f"{user}:(R,W)"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return
+
+
 def secure_storage_state_file(destination: Path | str) -> None:
     """Tighten an existing session file after a writer has populated it."""
+    path = Path(destination)
     if permissions_are_posix():
-        fd = _open_without_follow(Path(destination), os.O_RDONLY)
+        fd = _open_without_follow(path, os.O_RDONLY)
         try:
             if not stat.S_ISREG(os.fstat(fd).st_mode):
                 raise OSError(f"файл сессии не является обычным файлом: {destination}")
             os.fchmod(fd, SESSION_FILE_MODE)
         finally:
             os.close(fd)
+        return
+    if path.is_file():
+        _harden_windows_acl(path)
 
 
 def create_storage_state_temp(

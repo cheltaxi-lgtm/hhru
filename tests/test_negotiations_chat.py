@@ -36,9 +36,13 @@ def test_chat_preview_payload_and_topic_order():
         SimpleNamespace(status="read", topic="3"),
         SimpleNamespace(status="response", topic="2"),
         SimpleNamespace(status="invitation", topic="4"),
+        SimpleNamespace(status="unseen", topic="5"),
+        SimpleNamespace(status="discard", topic="6"),
     ]
     assert topics_for_chat_preview(cards, limit=3) == ["2", "1", "4"]
     assert topics_for_chat_preview(cards, limit=1) == ["2"]
+    assert topics_for_chat_preview(cards, limit=5) == ["2", "1", "4", "3", "5"]
+    assert "6" not in topics_for_chat_preview(cards, limit=10)
 
 
 def test_needs_reply_when_last_message_is_from_employer():

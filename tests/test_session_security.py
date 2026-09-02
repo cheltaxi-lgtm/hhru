@@ -259,3 +259,22 @@ def test_secure_storage_state_file_hardens_regular_file(tmp_path):
     secure_storage_state_file(destination)
 
     assert _mode(destination) == SESSION_FILE_MODE
+
+
+def test_secure_storage_state_file_windows_acl(tmp_path, monkeypatch):
+    destination = tmp_path / "hh_session.json"
+    destination.write_text("{}")
+    monkeypatch.setattr("hhru_bot.session_security.permissions_are_posix", lambda: False)
+    monkeypatch.setenv("USERNAME", "tester")
+    called = []
+
+    def fake_run(cmd, **kwargs):
+        called.append(cmd)
+        return type("R", (), {"returncode": 0})()
+
+    monkeypatch.setattr("hhru_bot.session_security.subprocess.run", fake_run)
+    secure_storage_state_file(destination)
+    assert called
+    assert called[0][0] == "icacls"
+    assert str(destination) in called[0]
+    assert any("tester:(R,W)" in part for part in called[0])

@@ -82,8 +82,8 @@ def register(subparsers) -> None:
         "--with-messages",
         action="store_true",
         help=(
-            "Прочитать последнее сообщение в чатах со статусом "
-            "response/invitation (лимит 8) и добавить last_message в JSON"
+            "Прочитать последнее сообщение в чатах response/invitation/read/unseen "
+            "(лимит 24) и добавить last_message в JSON"
         ),
     )
     p.set_defaults(func=run)
